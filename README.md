@@ -126,7 +126,7 @@ This repository contains a research prototype, not a production training method.
 The goal is to determine whether phase-coherence gating has measurable benefits in representation learning.
 
 # Results
-Experiments suggest that complex-valued latent representations combined with phase-alignment regularization improve classification accuracy on phase-structured signals. However, coherence-gated gradient scaling did not provide additional benefit in this setting.
+We observe that combining complex latent representations with phase alignment regularization and coherence-modulated gradient scaling yields consistent improvements over baseline models on synthetic phase-structured classification tasks.
 
 # License
 MIT
