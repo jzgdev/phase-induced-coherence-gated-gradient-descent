@@ -29,7 +29,6 @@ class Config:
     seed: int = 42
     num_runs: int = 3
 
-    # Synthetic task difficulty
     base_f1: float = 6.0
     base_f2: float = 12.0
     freq_jitter: float = 0.5
@@ -38,14 +37,12 @@ class Config:
     phase_jitter: float = 0.35
     noise_std: float = 0.2
 
-    # Augmentation settings
     aug_noise_std: float = 0.05
     aug_gain_low: float = 0.9
     aug_gain_high: float = 1.1
     aug_shift_min: int = -6
     aug_shift_max: int = 6
 
-    # Experimental loss weights
     lambda_amp: float = 0.1
     lambda_phase: float = 0.1
 
@@ -57,7 +54,7 @@ cfg = Config()
 # Reproducibility
 # ============================================================
 
-def set_seed(seed: int) -> None:
+def set_seed(seed: int):
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -72,30 +69,23 @@ def set_seed(seed: int) -> None:
 # ============================================================
 
 class PhaseStructuredDataset(Dataset):
-    """
-    Harder synthetic task:
-    - all classes use the SAME base frequencies
-    - classes differ mainly by relative phase offset
-    - added frequency jitter, amplitude jitter, phase jitter, and noise
-
-    This forces the model to care more about phase structure.
-    """
 
     def __init__(self, train: bool, cfg: Config):
-        super().__init__()
-        self.cfg = cfg
-        self.samples: List[torch.Tensor] = []
-        self.labels: List[int] = []
 
         total = cfg.samples_per_class_train if train else cfg.samples_per_class_val
-        t = torch.linspace(0.0, 1.0, cfg.seq_len)
 
-        # Same frequencies for all classes. Only phase offset differs.
-        phase_offsets = [0.0, math.pi / 4, math.pi / 2, 3 * math.pi / 4]
+        t = torch.linspace(0, 1, cfg.seq_len)
 
-        for label, class_phase_offset in enumerate(phase_offsets):
+        phase_offsets = [0, math.pi/4, math.pi/2, 3*math.pi/4]
+
+        samples = []
+        labels = []
+
+        for label, offset in enumerate(phase_offsets):
+
             for _ in range(total):
-                base_phase = random.uniform(0.0, 2.0 * math.pi)
+
+                base_phase = random.uniform(0, 2*math.pi)
 
                 a1 = random.uniform(cfg.amp_low, cfg.amp_high)
                 a2 = random.uniform(cfg.amp_low, cfg.amp_high)
@@ -103,438 +93,428 @@ class PhaseStructuredDataset(Dataset):
                 f1 = cfg.base_f1 + random.uniform(-cfg.freq_jitter, cfg.freq_jitter)
                 f2 = cfg.base_f2 + random.uniform(-cfg.freq_jitter, cfg.freq_jitter)
 
-                local_phase_jitter = random.uniform(-cfg.phase_jitter, cfg.phase_jitter)
+                jitter = random.uniform(-cfg.phase_jitter, cfg.phase_jitter)
 
                 x = (
-                    a1 * torch.sin(2.0 * math.pi * f1 * t + base_phase)
-                    + a2 * torch.sin(
-                        2.0 * math.pi * f2 * t + base_phase + class_phase_offset + local_phase_jitter
-                    )
+                    a1 * torch.sin(2*math.pi*f1*t + base_phase) +
+                    a2 * torch.sin(2*math.pi*f2*t + base_phase + offset + jitter)
                 )
 
-                x = x + cfg.noise_std * torch.randn_like(x)
+                x += cfg.noise_std * torch.randn_like(x)
+
                 x = (x - x.mean()) / (x.std() + 1e-6)
 
-                self.samples.append(x.unsqueeze(0))  # [1, T]
-                self.labels.append(label)
+                samples.append(x.unsqueeze(0))
+                labels.append(label)
 
-        self.samples = torch.stack(self.samples)
-        self.labels = torch.tensor(self.labels, dtype=torch.long)
+        self.samples = torch.stack(samples)
+        self.labels = torch.tensor(labels)
 
-    def __len__(self) -> int:
+    def __len__(self):
         return len(self.labels)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.samples[idx], self.labels[idx]
+    def __getitem__(self, i):
+        return self.samples[i], self.labels[i]
 
 
 # ============================================================
 # Augmentations
 # ============================================================
 
-def augment_signal(x: torch.Tensor, cfg: Config) -> torch.Tensor:
-    """
-    Mild augmentations for the reference view.
-    x: [B, 1, T]
-    """
+def augment_signal(x, cfg):
+
     x = x + cfg.aug_noise_std * torch.randn_like(x)
 
-    gain = torch.empty(x.size(0), 1, 1, device=x.device).uniform_(
-        cfg.aug_gain_low, cfg.aug_gain_high
-    )
+    gain = torch.empty(x.size(0),1,1,device=x.device).uniform_(cfg.aug_gain_low,cfg.aug_gain_high)
     x = x * gain
 
-    shifts = torch.randint(
-        low=cfg.aug_shift_min,
-        high=cfg.aug_shift_max + 1,
-        size=(x.size(0),),
-        device=x.device,
-    )
+    shifts = torch.randint(cfg.aug_shift_min,cfg.aug_shift_max+1,(x.size(0),),device=x.device)
 
-    x = torch.stack(
-        [torch.roll(x[i], shifts=int(shifts[i].item()), dims=-1) for i in range(x.size(0))],
-        dim=0,
-    )
+    x = torch.stack([torch.roll(x[i],int(shifts[i]),dims=-1) for i in range(x.size(0))])
 
     return x
 
 
 # ============================================================
-# Encoder Backbone
+# Encoder
 # ============================================================
 
 class ConvEncoder(nn.Module):
-    def __init__(self, hidden_dim: int):
+
+    def __init__(self, hidden_dim):
+
         super().__init__()
+
         self.net = nn.Sequential(
-            nn.Conv1d(1, 32, kernel_size=7, padding=3),
+
+            nn.Conv1d(1,32,7,padding=3),
             nn.BatchNorm1d(32),
             nn.GELU(),
 
-            nn.Conv1d(32, 64, kernel_size=7, padding=3, stride=2),
+            nn.Conv1d(32,64,7,padding=3,stride=2),
             nn.BatchNorm1d(64),
             nn.GELU(),
 
-            nn.Conv1d(64, hidden_dim, kernel_size=5, padding=2, stride=2),
+            nn.Conv1d(64,hidden_dim,5,padding=2,stride=2),
             nn.BatchNorm1d(hidden_dim),
             nn.GELU(),
 
-            nn.Conv1d(hidden_dim, hidden_dim, kernel_size=5, padding=2, stride=2),
+            nn.Conv1d(hidden_dim,hidden_dim,5,padding=2,stride=2),
             nn.BatchNorm1d(hidden_dim),
             nn.GELU(),
         )
+
         self.pool = nn.AdaptiveAvgPool1d(1)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self,x):
+
         h = self.net(x)
-        h = self.pool(h).squeeze(-1)
-        return h
+        return self.pool(h).squeeze(-1)
 
 
 # ============================================================
-# Baseline Model
+# Models
 # ============================================================
 
 class BaselineModel(nn.Module):
-    def __init__(self, hidden_dim: int, embed_dim: int, num_classes: int):
-        super().__init__()
-        self.encoder = ConvEncoder(hidden_dim)
-        self.proj = nn.Linear(hidden_dim, embed_dim)
-        self.cls = nn.Linear(embed_dim, num_classes)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __init__(self, hidden_dim, embed_dim, num_classes):
+
+        super().__init__()
+
+        self.encoder = ConvEncoder(hidden_dim)
+
+        self.proj = nn.Linear(hidden_dim,embed_dim)
+
+        self.cls = nn.Linear(embed_dim,num_classes)
+
+    def forward(self,x):
+
         h = self.encoder(x)
-        z = F.normalize(self.proj(h), dim=-1)
+
+        z = F.normalize(self.proj(h),dim=-1)
+
         logits = self.cls(z)
-        return z, logits
+
+        return z,logits
 
 
-# ============================================================
-# Experimental Model
-# ============================================================
+class PhaseModel(nn.Module):
 
-class PhaseCoherenceModel(nn.Module):
-    """
-    Projection head outputs real + imaginary latent parts.
-    We derive amplitude and phase from them.
-    """
+    def __init__(self, hidden_dim, embed_dim, num_classes):
 
-    def __init__(self, hidden_dim: int, embed_dim: int, num_classes: int):
         super().__init__()
-        self.encoder = ConvEncoder(hidden_dim)
-        self.proj_real = nn.Linear(hidden_dim, embed_dim)
-        self.proj_imag = nn.Linear(hidden_dim, embed_dim)
-        self.cls = nn.Linear(embed_dim * 2, num_classes)
 
-    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        self.encoder = ConvEncoder(hidden_dim)
+
+        self.real = nn.Linear(hidden_dim,embed_dim)
+        self.imag = nn.Linear(hidden_dim,embed_dim)
+
+        self.cls = nn.Linear(embed_dim*2,num_classes)
+
+    def forward(self,x):
+
         h = self.encoder(x)
 
-        z_real = self.proj_real(h)
-        z_imag = self.proj_imag(h)
+        r = self.real(h)
+        i = self.imag(h)
 
-        amplitude = torch.sqrt(z_real.pow(2) + z_imag.pow(2) + 1e-8)
-        phase = torch.atan2(z_imag, z_real)
+        amp = torch.sqrt(r**2 + i**2 + 1e-8)
 
-        z_cat = torch.cat([z_real, z_imag], dim=-1)
-        z_norm = F.normalize(z_cat, dim=-1)
-        logits = self.cls(z_norm)
+        phase = torch.atan2(i,r)
 
-        return {
-            "z_real": z_real,
-            "z_imag": z_imag,
-            "amplitude": amplitude,
-            "phase": phase,
-            "embedding": z_norm,
-            "logits": logits,
-        }
+        z = torch.cat([r,i],dim=-1)
+        z = F.normalize(z,dim=-1)
+
+        logits = self.cls(z)
+
+        return r,i,amp,phase,z,logits
 
 
 # ============================================================
-# Coherence / Auxiliary Losses
+# Coherence
 # ============================================================
 
-def coherence_score(
-    amp_a: torch.Tensor,
-    phase_a: torch.Tensor,
-    amp_b: torch.Tensor,
-    phase_b: torch.Tensor,
-) -> torch.Tensor:
-    """
-    Per-sample coherence:
-    C(x) = (1/n) * sum_i |h_i||r_i| cos(phi_i - phi_r_i)
-    """
+def coherence_score(amp_a,phase_a,amp_b,phase_b):
+
     return (amp_a * amp_b * torch.cos(phase_a - phase_b)).mean(dim=-1)
 
 
-def phase_alignment_loss(
-    phase_a: torch.Tensor,
-    phase_b: torch.Tensor,
-) -> torch.Tensor:
-    return (1.0 - torch.cos(phase_a - phase_b)).mean(dim=-1)
+def amp_loss(a,b):
+    return ((a-b)**2).mean(dim=-1)
 
 
-def amplitude_alignment_loss(
-    amp_a: torch.Tensor,
-    amp_b: torch.Tensor,
-) -> torch.Tensor:
-    return ((amp_a - amp_b) ** 2).mean(dim=-1)
+def phase_loss(a,b):
+    return (1-torch.cos(a-b)).mean(dim=-1)
 
 
 # ============================================================
-# Evaluation Helpers
+# Evaluation
 # ============================================================
 
 @torch.no_grad()
-def evaluate_baseline(
-    model: BaselineModel,
-    loader: DataLoader,
-    cfg: Config,
-) -> float:
+def eval_baseline(model,loader,cfg):
+
     model.eval()
-    total = 0
-    correct = 0
 
-    for x, y in loader:
-        x = x.to(cfg.device)
-        y = y.to(cfg.device)
+    total=0
+    correct=0
 
-        _, logits = model(x)
-        preds = logits.argmax(dim=-1)
+    for x,y in loader:
 
-        total += y.size(0)
-        correct += (preds == y).sum().item()
+        x=x.to(cfg.device)
+        y=y.to(cfg.device)
 
-    return correct / total
+        _,logits=model(x)
+
+        pred=logits.argmax(-1)
+
+        total+=y.size(0)
+        correct+=(pred==y).sum().item()
+
+    return correct/total
 
 
 @torch.no_grad()
-def evaluate_experimental(
-    model: PhaseCoherenceModel,
-    loader: DataLoader,
-    cfg: Config,
-) -> Tuple[float, float]:
+def eval_phase(model,loader,cfg):
+
     model.eval()
-    total = 0
-    correct = 0
-    coh_vals: List[float] = []
 
-    for x, y in loader:
-        x = x.to(cfg.device)
-        y = y.to(cfg.device)
+    total=0
+    correct=0
+    coh_vals=[]
 
-        x_ref = augment_signal(x, cfg)
+    for x,y in loader:
 
-        out = model(x)
-        ref = model(x_ref)
+        x=x.to(cfg.device)
+        y=y.to(cfg.device)
 
-        preds = out["logits"].argmax(dim=-1)
-        total += y.size(0)
-        correct += (preds == y).sum().item()
+        x_ref=augment_signal(x,cfg)
 
-        coh = coherence_score(
-            out["amplitude"], out["phase"],
-            ref["amplitude"], ref["phase"]
-        )
+        r,i,a,p,z,logits=model(x)
+        r2,i2,a2,p2,_,_=model(x_ref)
+
+        pred=logits.argmax(-1)
+
+        total+=y.size(0)
+        correct+=(pred==y).sum().item()
+
+        coh=coherence_score(a,p,a2,p2)
+
         coh_vals.append(coh.mean().item())
 
-    mean_coh = sum(coh_vals) / max(len(coh_vals), 1)
-    return correct / total, mean_coh
+    return correct/total,sum(coh_vals)/len(coh_vals)
 
 
 # ============================================================
-# Training
+# Training variants
 # ============================================================
 
-def train_baseline(
-    cfg: Config,
-    train_loader: DataLoader,
-    val_loader: DataLoader,
-) -> BaselineModel:
-    print("\n=== Training baseline ===")
-    model = BaselineModel(cfg.hidden_dim, cfg.embed_dim, cfg.num_classes).to(cfg.device)
-    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+def train_baseline(cfg,train_loader,val_loader):
 
-    for epoch in range(cfg.epochs):
+    print("\n=== Baseline ===")
+
+    model=BaselineModel(cfg.hidden_dim,cfg.embed_dim,cfg.num_classes).to(cfg.device)
+
+    opt=torch.optim.AdamW(model.parameters(),lr=cfg.lr)
+
+    for e in range(cfg.epochs):
+
         model.train()
-        running_loss = 0.0
 
-        for x, y in train_loader:
-            x = x.to(cfg.device)
-            y = y.to(cfg.device)
+        for x,y in train_loader:
 
-            _, logits = model(x)
-            loss = F.cross_entropy(logits, y)
+            x=x.to(cfg.device)
+            y=y.to(cfg.device)
+
+            _,logits=model(x)
+
+            loss=F.cross_entropy(logits,y)
 
             opt.zero_grad()
             loss.backward()
             opt.step()
 
-            running_loss += loss.item()
+        val=eval_baseline(model,val_loader,cfg)
 
-        val_acc = evaluate_baseline(model, val_loader, cfg)
-        print(
-            f"[Baseline] Epoch {epoch + 1:02d}/{cfg.epochs} | "
-            f"train_loss={running_loss / len(train_loader):.4f} | "
-            f"val_acc={val_acc:.4f}"
-        )
+        print(f"[Baseline] epoch {e+1} val_acc {val:.4f}")
 
     return model
 
 
-def train_experimental(
-    cfg: Config,
-    train_loader: DataLoader,
-    val_loader: DataLoader,
-) -> PhaseCoherenceModel:
-    print("\n=== Training experimental model ===")
-    model = PhaseCoherenceModel(cfg.hidden_dim, cfg.embed_dim, cfg.num_classes).to(cfg.device)
-    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+def train_complex(cfg,train_loader,val_loader):
 
-    for epoch in range(cfg.epochs):
+    print("\n=== Complex Latent Only ===")
+
+    model=PhaseModel(cfg.hidden_dim,cfg.embed_dim,cfg.num_classes).to(cfg.device)
+
+    opt=torch.optim.AdamW(model.parameters(),lr=cfg.lr)
+
+    for e in range(cfg.epochs):
+
         model.train()
-        running_loss = 0.0
-        running_coh = 0.0
 
-        for x, y in train_loader:
-            x = x.to(cfg.device)
-            y = y.to(cfg.device)
+        for x,y in train_loader:
 
-            x_ref = augment_signal(x, cfg)
+            x=x.to(cfg.device)
+            y=y.to(cfg.device)
 
-            out = model(x)
-            ref = model(x_ref)
+            _,_,_,_,_,logits=model(x)
 
-            # Per-sample CE, so gating is actually per-sample.
-            per_sample_ce = F.cross_entropy(out["logits"], y, reduction="none")
-
-            coh = coherence_score(
-                out["amplitude"], out["phase"],
-                ref["amplitude"].detach(), ref["phase"].detach()
-            )
-
-            alpha = torch.sigmoid(cfg.beta * coh)
-
-            per_sample_amp = amplitude_alignment_loss(
-                out["amplitude"], ref["amplitude"].detach()
-            )
-            per_sample_phase = phase_alignment_loss(
-                out["phase"], ref["phase"].detach()
-            )
-
-            per_sample_loss = (
-                alpha * per_sample_ce
-                + cfg.lambda_amp * per_sample_amp
-                + cfg.lambda_phase * per_sample_phase
-            )
-
-            loss = per_sample_loss.mean()
+            loss=F.cross_entropy(logits,y)
 
             opt.zero_grad()
             loss.backward()
             opt.step()
 
-            running_loss += loss.item()
-            running_coh += coh.mean().item()
+        val,_=eval_phase(model,val_loader,cfg)
 
-        val_acc, val_coh = evaluate_experimental(model, val_loader, cfg)
-        print(
-            f"[Experimental] Epoch {epoch + 1:02d}/{cfg.epochs} | "
-            f"train_loss={running_loss / len(train_loader):.4f} | "
-            f"train_coh={running_coh / len(train_loader):.4f} | "
-            f"val_acc={val_acc:.4f} | "
-            f"val_coh={val_coh:.4f}"
-        )
+        print(f"[Complex] epoch {e+1} val_acc {val:.4f}")
+
+    return model
+
+
+def train_alignment(cfg,train_loader,val_loader):
+
+    print("\n=== Alignment Loss Only ===")
+
+    model=PhaseModel(cfg.hidden_dim,cfg.embed_dim,cfg.num_classes).to(cfg.device)
+
+    opt=torch.optim.AdamW(model.parameters(),lr=cfg.lr)
+
+    for e in range(cfg.epochs):
+
+        model.train()
+
+        for x,y in train_loader:
+
+            x=x.to(cfg.device)
+            y=y.to(cfg.device)
+
+            x_ref=augment_signal(x,cfg)
+
+            r,i,a,p,z,logits=model(x)
+            r2,i2,a2,p2,_,_=model(x_ref)
+
+            ce=F.cross_entropy(logits,y)
+
+            loss=ce + cfg.lambda_amp*amp_loss(a,a2).mean() + cfg.lambda_phase*phase_loss(p,p2).mean()
+
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+        val,_=eval_phase(model,val_loader,cfg)
+
+        print(f"[Align] epoch {e+1} val_acc {val:.4f}")
+
+    return model
+
+
+def train_full(cfg,train_loader,val_loader):
+
+    print("\n=== Full Method (Coherence Gating) ===")
+
+    model=PhaseModel(cfg.hidden_dim,cfg.embed_dim,cfg.num_classes).to(cfg.device)
+
+    opt=torch.optim.AdamW(model.parameters(),lr=cfg.lr)
+
+    for e in range(cfg.epochs):
+
+        model.train()
+
+        for x,y in train_loader:
+
+            x=x.to(cfg.device)
+            y=y.to(cfg.device)
+
+            x_ref=augment_signal(x,cfg)
+
+            r,i,a,p,z,logits=model(x)
+            r2,i2,a2,p2,_,_=model(x_ref)
+
+            ce=F.cross_entropy(logits,y,reduction="none")
+
+            coh=coherence_score(a,p,a2.detach(),p2.detach())
+
+            alpha=torch.sigmoid(cfg.beta*coh)
+
+            loss=(alpha*ce).mean()
+
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+        val,coh_val=eval_phase(model,val_loader,cfg)
+
+        print(f"[Full] epoch {e+1} val_acc {val:.4f} coh {coh_val:.4f}")
 
     return model
 
 
 # ============================================================
-# One Full Run
+# Experiment
 # ============================================================
 
-def run_once(run_cfg: Config) -> Dict[str, float]:
-    set_seed(run_cfg.seed)
+def run_once(cfg):
 
-    print(f"\n{'=' * 72}")
-    print(f"RUN seed={run_cfg.seed} | device={run_cfg.device}")
-    print(f"{'=' * 72}")
+    set_seed(cfg.seed)
 
-    train_ds = PhaseStructuredDataset(train=True, cfg=run_cfg)
-    val_ds = PhaseStructuredDataset(train=False, cfg=run_cfg)
+    train_ds=PhaseStructuredDataset(True,cfg)
+    val_ds=PhaseStructuredDataset(False,cfg)
 
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=run_cfg.batch_size,
-        shuffle=True,
-        drop_last=True,
-    )
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=run_cfg.batch_size,
-        shuffle=False,
-    )
+    train_loader=DataLoader(train_ds,batch_size=cfg.batch_size,shuffle=True)
+    val_loader=DataLoader(val_ds,batch_size=cfg.batch_size)
 
-    baseline = train_baseline(run_cfg, train_loader, val_loader)
-    experimental = train_experimental(run_cfg, train_loader, val_loader)
+    base=train_baseline(cfg,train_loader,val_loader)
+    complex_model=train_complex(cfg,train_loader,val_loader)
+    align=train_alignment(cfg,train_loader,val_loader)
+    full=train_full(cfg,train_loader,val_loader)
 
-    baseline_acc = evaluate_baseline(baseline, val_loader, run_cfg)
-    experimental_acc, experimental_coh = evaluate_experimental(experimental, val_loader, run_cfg)
+    base_acc=eval_baseline(base,val_loader,cfg)
+    complex_acc,_=eval_phase(complex_model,val_loader,cfg)
+    align_acc,_=eval_phase(align,val_loader,cfg)
+    full_acc,coh=eval_phase(full,val_loader,cfg)
 
-    print("\n=== Final Results (single run) ===")
-    print(f"Baseline val acc:      {baseline_acc:.4f}")
-    print(f"Experimental val acc:  {experimental_acc:.4f}")
-    print(f"Experimental val coh:  {experimental_coh:.4f}")
+    print("\nRESULTS")
+    print("Baseline:",base_acc)
+    print("Complex:",complex_acc)
+    print("Align:",align_acc)
+    print("Full:",full_acc)
 
-    return {
-        "baseline_acc": baseline_acc,
-        "experimental_acc": experimental_acc,
-        "experimental_coh": experimental_coh,
-    }
+    return base_acc,complex_acc,align_acc,full_acc
 
 
 # ============================================================
-# Multi-Run Summary
+# Main
 # ============================================================
 
-def mean(xs: List[float]) -> float:
-    return sum(xs) / len(xs)
+def main():
+
+    results=[]
+
+    for i in range(cfg.num_runs):
+
+        run_cfg=replace(cfg,seed=cfg.seed+i)
+
+        print("\n"+"="*60)
+        print("RUN",run_cfg.seed)
+        print("="*60)
+
+        results.append(run_once(run_cfg))
+
+    r=torch.tensor(results)
+
+    print("\nSUMMARY")
+
+    names=["Baseline","Complex","Align","Full"]
+
+    for i,n in enumerate(names):
+
+        vals=r[:,i]
+
+        print(n,vals.mean().item(),"±",vals.std().item())
 
 
-def std(xs: List[float]) -> float:
-    if len(xs) <= 1:
-        return 0.0
-    m = mean(xs)
-    return (sum((x - m) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5
-
-
-def main() -> None:
-    all_results: List[Dict[str, float]] = []
-
-    for run_idx in range(cfg.num_runs):
-        run_cfg = replace(cfg, seed=cfg.seed + run_idx)
-        results = run_once(run_cfg)
-        all_results.append(results)
-
-    baseline_accs = [r["baseline_acc"] for r in all_results]
-    experimental_accs = [r["experimental_acc"] for r in all_results]
-    experimental_cohs = [r["experimental_coh"] for r in all_results]
-
-    print(f"\n{'=' * 72}")
-    print("MULTI-RUN SUMMARY")
-    print(f"{'=' * 72}")
-    print(
-        f"Baseline acc:      {mean(baseline_accs):.4f} ± {std(baseline_accs):.4f}"
-    )
-    print(
-        f"Experimental acc:  {mean(experimental_accs):.4f} ± {std(experimental_accs):.4f}"
-    )
-    print(
-        f"Experimental coh:  {mean(experimental_cohs):.4f} ± {std(experimental_cohs):.4f}"
-    )
-    print(
-        f"Delta acc:         {mean(experimental_accs) - mean(baseline_accs):+.4f}"
-    )
-
-
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
