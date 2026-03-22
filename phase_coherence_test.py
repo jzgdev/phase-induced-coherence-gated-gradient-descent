@@ -3,6 +3,7 @@ import random
 from dataclasses import dataclass, replace
 from typing import Dict, List, Tuple
 
+from matplotlib.pylab import beta
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -437,7 +438,8 @@ def train_full(cfg,train_loader,val_loader):
 
             coh=coherence_score(a,p,a2.detach(),p2.detach())
 
-            alpha=torch.sigmoid(cfg.beta*coh)
+            alpha = 1 + cfg.beta * coh
+            alpha = torch.clamp(alpha, 0.5, 1.5)
 
             loss=(alpha*ce).mean()
 
