@@ -80,21 +80,30 @@ def _resolve_audio_root(root: str) -> Path:
 
 
 def _find_mix_file(track_dir: Path) -> Path:
-    candidates = sorted(track_dir.glob("*_MIX.wav"))
+    candidates = [
+        p for p in sorted(track_dir.glob("*_MIX.wav"))
+        if not p.name.startswith("._") and p.name != ".DS_Store"
+    ]
     if not candidates:
         raise FileNotFoundError(f"No *_MIX.wav found in {track_dir}")
     return candidates[0]
 
 
 def _find_stem_dir(track_dir: Path) -> Path:
-    candidates = sorted(track_dir.glob("*_STEMS"))
+    candidates = [
+        p for p in sorted(track_dir.glob("*_STEMS"))
+        if not p.name.startswith("._") and p.name != ".DS_Store"
+    ]
     if not candidates:
         raise FileNotFoundError(f"No *_STEMS directory found in {track_dir}")
     return candidates[0]
 
 
 def _find_stem_files(stem_dir: Path) -> List[Path]:
-    stems = sorted(stem_dir.glob("*.wav"))
+    stems = [
+        p for p in sorted(stem_dir.glob("*.wav"))
+        if not p.name.startswith("._") and p.name != ".DS_Store"
+    ]
     if not stems:
         raise FileNotFoundError(f"No stem wavs found in {stem_dir}")
     return stems
