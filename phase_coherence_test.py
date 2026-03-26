@@ -1,6 +1,7 @@
 import argparse
 import copy
 import random
+import time
 from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Tuple
 
@@ -69,6 +70,9 @@ class Config:
     gate_gamma: float = 0.20
     gate_warmup_epochs: int = 5
 
+    # Logging
+    log_every_n_batches: int = 10
+
 
 # ============================================================
 # Reproducibility
@@ -82,6 +86,36 @@ def set_seed(seed: int) -> None:
     if torch.backends.cudnn.is_available():
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+
+# ============================================================
+# Logging helpers
+# ============================================================
+
+def log_batch_progress(
+    stage: str,
+    epoch: int,
+    batch_idx: int,
+    total_batches: int,
+    loss: float,
+    start_time: float,
+    extra: str = "",
+) -> None:
+    elapsed = time.time() - start_time
+    it_per_sec = (batch_idx + 1) / elapsed if elapsed > 0 else 0.0
+
+    msg = (
+        f"[{stage}] "
+        f"epoch {epoch + 1:02d} "
+        f"batch {batch_idx + 1}/{total_batches} "
+        f"loss {loss:.4f} "
+        f"{it_per_sec:.2f} it/s"
+    )
+
+    if extra:
+        msg += f" | {extra}"
+
+    print(msg, flush=True)
 
 
 # ============================================================
@@ -206,7 +240,6 @@ def build_datasets(cfg: Config):
         return train_ds, val_ds, num_classes, is_paired
 
     if cfg.dataset == "medleydb_sample":
-        # Train/val share the same label map.
         train_ds = MedleyDBSamplePairs(
             root=cfg.medleydb_root,
             sample_rate=cfg.sample_rate,
@@ -234,6 +267,12 @@ def build_datasets(cfg: Config):
 def make_loaders(cfg: Config):
     train_ds, val_ds, num_classes, is_paired = build_datasets(cfg)
 
+    print(
+        f"Built datasets | train_samples={len(train_ds)} | "
+        f"val_samples={len(val_ds)} | num_classes={num_classes} | paired={is_paired}",
+        flush=True,
+    )
+
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.batch_size,
@@ -247,6 +286,12 @@ def make_loaders(cfg: Config):
         shuffle=False,
         num_workers=cfg.num_workers,
         drop_last=False,
+    )
+
+    print(
+        f"Built loaders | train_batches={len(train_loader)} | "
+        f"val_batches={len(val_loader)} | batch_size={cfg.batch_size}",
+        flush=True,
     )
 
     return train_loader, val_loader, num_classes, is_paired
@@ -355,7 +400,7 @@ def train_baseline(
     num_classes: int,
     is_paired: bool,
 ) -> BaselineModel:
-    print("\n=== Baseline ===")
+    print("\n=== Baseline ===", flush=True)
 
     model = BaselineModel(cfg.hidden_dim, cfg.embed_dim, num_classes).to(cfg.device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
@@ -366,8 +411,9 @@ def train_baseline(
     for epoch in range(cfg.epochs):
         model.train()
         loss_sum = 0.0
+        epoch_start = time.time()
 
-        for batch in train_loader:
+        for batch_idx, batch in enumerate(train_loader):
             if is_paired:
                 x, _, y = batch
             else:
@@ -385,16 +431,28 @@ def train_baseline(
 
             loss_sum += loss.item()
 
+            if batch_idx % cfg.log_every_n_batches == 0:
+                log_batch_progress(
+                    "Baseline",
+                    epoch,
+                    batch_idx,
+                    len(train_loader),
+                    loss.item(),
+                    epoch_start,
+                )
+
         val_acc = evaluate_baseline(model, val_loader, cfg, is_paired)
         best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model)
         if maybe_state is not None:
             best_state = maybe_state
 
         print(
-            f"[Baseline] epoch {epoch + 1:02d} | "
+            f"[Baseline] epoch {epoch + 1:02d} done | "
             f"loss {loss_sum / len(train_loader):.4f} | "
             f"val_acc {val_acc:.4f} | "
-            f"best {best_acc:.4f}"
+            f"best {best_acc:.4f} | "
+            f"epoch_time {time.time() - epoch_start:.1f}s",
+            flush=True,
         )
 
     return load_best_state(model, best_state)
@@ -407,7 +465,7 @@ def train_complex_only(
     num_classes: int,
     is_paired: bool,
 ) -> PhaseModel:
-    print("\n=== Complex Latent Only ===")
+    print("\n=== Complex Latent Only ===", flush=True)
 
     model = PhaseModel(cfg.hidden_dim, cfg.embed_dim, num_classes).to(cfg.device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
@@ -418,8 +476,9 @@ def train_complex_only(
     for epoch in range(cfg.epochs):
         model.train()
         loss_sum = 0.0
+        epoch_start = time.time()
 
-        for batch in train_loader:
+        for batch_idx, batch in enumerate(train_loader):
             if is_paired:
                 x, _, y = batch
             else:
@@ -437,16 +496,28 @@ def train_complex_only(
 
             loss_sum += loss.item()
 
+            if batch_idx % cfg.log_every_n_batches == 0:
+                log_batch_progress(
+                    "Complex",
+                    epoch,
+                    batch_idx,
+                    len(train_loader),
+                    loss.item(),
+                    epoch_start,
+                )
+
         val_acc, _ = evaluate_phase(model, val_loader, cfg, is_paired)
         best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model)
         if maybe_state is not None:
             best_state = maybe_state
 
         print(
-            f"[Complex] epoch {epoch + 1:02d} | "
+            f"[Complex] epoch {epoch + 1:02d} done | "
             f"loss {loss_sum / len(train_loader):.4f} | "
             f"val_acc {val_acc:.4f} | "
-            f"best {best_acc:.4f}"
+            f"best {best_acc:.4f} | "
+            f"epoch_time {time.time() - epoch_start:.1f}s",
+            flush=True,
         )
 
     return load_best_state(model, best_state)
@@ -459,7 +530,7 @@ def train_alignment_only(
     num_classes: int,
     is_paired: bool,
 ) -> PhaseModel:
-    print("\n=== Alignment Loss Only ===")
+    print("\n=== Alignment Loss Only ===", flush=True)
 
     model = PhaseModel(cfg.hidden_dim, cfg.embed_dim, num_classes).to(cfg.device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
@@ -470,8 +541,9 @@ def train_alignment_only(
     for epoch in range(cfg.epochs):
         model.train()
         loss_sum = 0.0
+        epoch_start = time.time()
 
-        for batch in train_loader:
+        for batch_idx, batch in enumerate(train_loader):
             if is_paired:
                 x, x_ref, y = batch
             else:
@@ -497,16 +569,29 @@ def train_alignment_only(
 
             loss_sum += loss.item()
 
+            if batch_idx % cfg.log_every_n_batches == 0:
+                log_batch_progress(
+                    "Align",
+                    epoch,
+                    batch_idx,
+                    len(train_loader),
+                    loss.item(),
+                    epoch_start,
+                    extra=f"amp={amp_l.item():.4f} phase={phase_l.item():.4f}",
+                )
+
         val_acc, _ = evaluate_phase(model, val_loader, cfg, is_paired)
         best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model)
         if maybe_state is not None:
             best_state = maybe_state
 
         print(
-            f"[Align] epoch {epoch + 1:02d} | "
+            f"[Align] epoch {epoch + 1:02d} done | "
             f"loss {loss_sum / len(train_loader):.4f} | "
             f"val_acc {val_acc:.4f} | "
-            f"best {best_acc:.4f}"
+            f"best {best_acc:.4f} | "
+            f"epoch_time {time.time() - epoch_start:.1f}s",
+            flush=True,
         )
 
     return load_best_state(model, best_state)
@@ -519,7 +604,7 @@ def train_full(
     num_classes: int,
     is_paired: bool,
 ) -> PhaseModel:
-    print("\n=== Full Method (Alignment + Gentle Coherence Gating) ===")
+    print("\n=== Full Method (Alignment + Gentle Coherence Gating) ===", flush=True)
 
     model = PhaseModel(cfg.hidden_dim, cfg.embed_dim, num_classes).to(cfg.device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
@@ -532,8 +617,9 @@ def train_full(
         loss_sum = 0.0
         gate_sum = 0.0
         coh_sum = 0.0
+        epoch_start = time.time()
 
-        for batch in train_loader:
+        for batch_idx, batch in enumerate(train_loader):
             if is_paired:
                 x, x_ref, y = batch
             else:
@@ -577,19 +663,37 @@ def train_full(
             gate_sum += alpha.mean().item()
             coh_sum += coh.mean().item()
 
+            if batch_idx % cfg.log_every_n_batches == 0:
+                log_batch_progress(
+                    "Full",
+                    epoch,
+                    batch_idx,
+                    len(train_loader),
+                    loss.item(),
+                    epoch_start,
+                    extra=(
+                        f"gate={alpha.mean().item():.4f} "
+                        f"coh={coh.mean().item():.4f} "
+                        f"amp={per_sample_amp.mean().item():.4f} "
+                        f"phase={per_sample_phase.mean().item():.4f}"
+                    ),
+                )
+
         val_acc, val_coh = evaluate_phase(model, val_loader, cfg, is_paired)
         best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model)
         if maybe_state is not None:
             best_state = maybe_state
 
         print(
-            f"[Full] epoch {epoch + 1:02d} | "
+            f"[Full] epoch {epoch + 1:02d} done | "
             f"loss {loss_sum / len(train_loader):.4f} | "
             f"train_gate {gate_sum / len(train_loader):.4f} | "
             f"train_coh {coh_sum / len(train_loader):.4f} | "
             f"val_acc {val_acc:.4f} | "
             f"val_coh {val_coh:.4f} | "
-            f"best {best_acc:.4f}"
+            f"best {best_acc:.4f} | "
+            f"epoch_time {time.time() - epoch_start:.1f}s",
+            flush=True,
         )
 
     return load_best_state(model, best_state)
@@ -614,12 +718,12 @@ def run_once(cfg: Config) -> Tuple[float, float, float, float]:
     align_acc, _ = evaluate_phase(alignment_only, val_loader, cfg, is_paired)
     full_acc, full_coh = evaluate_phase(full, val_loader, cfg, is_paired)
 
-    print("\nRESULTS")
-    print(f"Baseline: {baseline_acc:.6f}")
-    print(f"Complex:  {complex_acc:.6f}")
-    print(f"Align:    {align_acc:.6f}")
-    print(f"Full:     {full_acc:.6f}")
-    print(f"Full coh: {full_coh:.6f}")
+    print("\nRESULTS", flush=True)
+    print(f"Baseline: {baseline_acc:.6f}", flush=True)
+    print(f"Complex:  {complex_acc:.6f}", flush=True)
+    print(f"Align:    {align_acc:.6f}", flush=True)
+    print(f"Full:     {full_acc:.6f}", flush=True)
+    print(f"Full coh: {full_coh:.6f}", flush=True)
 
     return baseline_acc, complex_acc, align_acc, full_acc
 
@@ -644,6 +748,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--medley_max_tracks", type=int, default=0)
     parser.add_argument("--train_samples_per_epoch", type=int, default=1024)
     parser.add_argument("--val_samples_per_epoch", type=int, default=256)
+    parser.add_argument("--log_every_n_batches", type=int, default=10)
 
     return parser.parse_args()
 
@@ -665,6 +770,7 @@ def main() -> None:
         medley_max_tracks=args.medley_max_tracks,
         train_samples_per_epoch=args.train_samples_per_epoch,
         val_samples_per_epoch=args.val_samples_per_epoch,
+        log_every_n_batches=args.log_every_n_batches,
     )
 
     results = []
@@ -672,9 +778,9 @@ def main() -> None:
     for run_idx in range(base_cfg.num_runs):
         run_cfg = replace(base_cfg, seed=base_cfg.seed + run_idx)
 
-        print("\n" + "=" * 60)
-        print(f"RUN {run_cfg.seed} | device={run_cfg.device} | dataset={run_cfg.dataset}")
-        print("=" * 60)
+        print("\n" + "=" * 60, flush=True)
+        print(f"RUN {run_cfg.seed} | device={run_cfg.device} | dataset={run_cfg.dataset}", flush=True)
+        print("=" * 60, flush=True)
 
         results.append(run_once(run_cfg))
 
@@ -682,15 +788,15 @@ def main() -> None:
 
     names = ["Baseline", "Complex", "Align", "Full"]
 
-    print("\nSUMMARY")
+    print("\nSUMMARY", flush=True)
     for i, name in enumerate(names):
         vals = r[:, i]
-        print(f"{name:<10} {vals.mean().item():.6f} ± {vals.std(unbiased=True).item():.6f}")
+        print(f"{name:<10} {vals.mean().item():.6f} ± {vals.std(unbiased=True).item():.6f}", flush=True)
 
-    print(f"\nDelta(Complex-Baseline): {(r[:,1].mean() - r[:,0].mean()).item():+.6f}")
-    print(f"Delta(Align-Baseline):   {(r[:,2].mean() - r[:,0].mean()).item():+.6f}")
-    print(f"Delta(Full-Baseline):    {(r[:,3].mean() - r[:,0].mean()).item():+.6f}")
-    print(f"Delta(Full-Align):       {(r[:,3].mean() - r[:,2].mean()).item():+.6f}")
+    print(f"\nDelta(Complex-Baseline): {(r[:,1].mean() - r[:,0].mean()).item():+.6f}", flush=True)
+    print(f"Delta(Align-Baseline):   {(r[:,2].mean() - r[:,0].mean()).item():+.6f}", flush=True)
+    print(f"Delta(Full-Baseline):    {(r[:,3].mean() - r[:,0].mean()).item():+.6f}", flush=True)
+    print(f"Delta(Full-Align):       {(r[:,3].mean() - r[:,2].mean()).item():+.6f}", flush=True)
 
 
 if __name__ == "__main__":
