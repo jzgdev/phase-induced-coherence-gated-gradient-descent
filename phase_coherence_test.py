@@ -1,8 +1,10 @@
 import argparse
 import copy
+import json
 import random
 import time
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -73,6 +75,10 @@ class Config:
     # Logging
     log_every_n_batches: int = 10
 
+    # Saving
+    checkpoint_dir: str = "checkpoints"
+    save_checkpoints: bool = True
+
 
 # ============================================================
 # Reproducibility
@@ -116,6 +122,53 @@ def log_batch_progress(
         msg += f" | {extra}"
 
     print(msg, flush=True)
+
+
+# ============================================================
+# Checkpoint helpers
+# ============================================================
+
+def ensure_checkpoint_dir(cfg: Config) -> Path:
+    checkpoint_dir = Path(cfg.checkpoint_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    return checkpoint_dir
+
+
+def save_run_config(cfg: Config) -> None:
+    checkpoint_dir = ensure_checkpoint_dir(cfg)
+    config_path = checkpoint_dir / "run_config.json"
+    with config_path.open("w", encoding="utf-8") as f:
+        json.dump(asdict(cfg), f, indent=2)
+
+
+def maybe_save_best(
+    best_acc: float,
+    current_acc: float,
+    model: nn.Module,
+    model_name: str,
+    cfg: Config,
+) -> Tuple[float, Optional[Dict[str, torch.Tensor]]]:
+    if current_acc > best_acc:
+        state = copy.deepcopy(model.state_dict())
+
+        if cfg.save_checkpoints:
+            checkpoint_dir = ensure_checkpoint_dir(cfg)
+            ckpt_path = checkpoint_dir / f"{model_name}_best.pt"
+            torch.save(state, ckpt_path)
+            print(f"[checkpoint] saved best {model_name} -> {ckpt_path}", flush=True)
+
+        return current_acc, state
+
+    return best_acc, None
+
+
+def load_best_state(
+    model: nn.Module,
+    best_state: Optional[Dict[str, torch.Tensor]],
+) -> nn.Module:
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    return model
 
 
 # ============================================================
@@ -370,26 +423,6 @@ def evaluate_phase(
 
 
 # ============================================================
-# Training helpers
-# ============================================================
-
-def maybe_save_best(
-    best_acc: float,
-    current_acc: float,
-    model: nn.Module,
-) -> Tuple[float, Optional[Dict[str, torch.Tensor]]]:
-    if current_acc > best_acc:
-        return current_acc, copy.deepcopy(model.state_dict())
-    return best_acc, None
-
-
-def load_best_state(model: nn.Module, best_state: Optional[Dict[str, torch.Tensor]]) -> nn.Module:
-    if best_state is not None:
-        model.load_state_dict(best_state)
-    return model
-
-
-# ============================================================
 # Training variants
 # ============================================================
 
@@ -442,7 +475,7 @@ def train_baseline(
                 )
 
         val_acc = evaluate_baseline(model, val_loader, cfg, is_paired)
-        best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model)
+        best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model, "baseline", cfg)
         if maybe_state is not None:
             best_state = maybe_state
 
@@ -507,7 +540,7 @@ def train_complex_only(
                 )
 
         val_acc, _ = evaluate_phase(model, val_loader, cfg, is_paired)
-        best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model)
+        best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model, "complex", cfg)
         if maybe_state is not None:
             best_state = maybe_state
 
@@ -581,7 +614,7 @@ def train_alignment_only(
                 )
 
         val_acc, _ = evaluate_phase(model, val_loader, cfg, is_paired)
-        best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model)
+        best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model, "align", cfg)
         if maybe_state is not None:
             best_state = maybe_state
 
@@ -680,7 +713,7 @@ def train_full(
                 )
 
         val_acc, val_coh = evaluate_phase(model, val_loader, cfg, is_paired)
-        best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model)
+        best_acc, maybe_state = maybe_save_best(best_acc, val_acc, model, "full", cfg)
         if maybe_state is not None:
             best_state = maybe_state
 
@@ -750,6 +783,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val_samples_per_epoch", type=int, default=256)
     parser.add_argument("--log_every_n_batches", type=int, default=10)
 
+    parser.add_argument("--checkpoint_dir", type=str, default="checkpoints")
+    parser.add_argument("--save_checkpoints", action="store_true")
+
     return parser.parse_args()
 
 
@@ -771,7 +807,13 @@ def main() -> None:
         train_samples_per_epoch=args.train_samples_per_epoch,
         val_samples_per_epoch=args.val_samples_per_epoch,
         log_every_n_batches=args.log_every_n_batches,
+        checkpoint_dir=args.checkpoint_dir,
+        save_checkpoints=args.save_checkpoints,
     )
+
+    if base_cfg.save_checkpoints:
+        ensure_checkpoint_dir(base_cfg)
+        save_run_config(base_cfg)
 
     results = []
 
