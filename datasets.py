@@ -181,7 +181,10 @@ class MedleyDBSamplePairs(Dataset):
         self.samples_per_epoch = samples_per_epoch
         self.rng = random.Random(seed)
 
-        all_track_dirs = sorted([p for p in self.audio_root.iterdir() if p.is_dir()])
+        all_track_dirs = sorted([
+            p for p in self.audio_root.iterdir()
+            if p.is_dir() and not p.name.startswith("._") and p.name != ".DS_Store"
+        ])
 
         if max_tracks > 0:
             all_track_dirs = all_track_dirs[:max_tracks]
