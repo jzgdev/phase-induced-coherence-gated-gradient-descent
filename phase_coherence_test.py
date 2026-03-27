@@ -714,6 +714,13 @@ def unpack_batch(batch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     raise ValueError(f"Unsupported batch format with {len(batch)} entries")
 
 
+def get_model_device(model: nn.Module) -> torch.device:
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        return torch.device("cpu")
+
+
 # ============================================================
 # Evaluation
 # ============================================================
@@ -726,6 +733,7 @@ def evaluate_baseline(
     cfg: Config,
 ) -> Dict[str, Optional[float]]:
     model.eval()
+    device = get_model_device(model)
 
     total = 0
     correct = 0
@@ -734,8 +742,8 @@ def evaluate_baseline(
 
     for batch in loader:
         x, _, y = unpack_batch(batch)
-        x = x.to(cfg.device)
-        y = y.to(cfg.device)
+        x = x.to(device)
+        y = y.to(device)
 
         _, logits = model(x)
         ce = F.cross_entropy(logits, y)
@@ -764,6 +772,7 @@ def evaluate_phase(
     include_alignment_terms: bool = False,
 ) -> Dict[str, Optional[float]]:
     model.eval()
+    device = get_model_device(model)
 
     total = 0
     correct = 0
@@ -776,9 +785,9 @@ def evaluate_phase(
 
     for batch in loader:
         x, x_ref, y = unpack_batch(batch)
-        x = x.to(cfg.device)
-        x_ref = x_ref.to(cfg.device)
-        y = y.to(cfg.device)
+        x = x.to(device)
+        x_ref = x_ref.to(device)
+        y = y.to(device)
 
         _, _, amp, phase, _, logits = model(x)
         _, _, amp_ref, phase_ref, _, _ = model(x_ref)

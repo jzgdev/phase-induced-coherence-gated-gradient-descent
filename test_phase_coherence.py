@@ -98,11 +98,13 @@ class PhaseCoherenceTests(unittest.TestCase):
             loader2 = DataLoader(ds2, batch_size=cfg.batch_size, shuffle=False)
             model = PhaseModel(cfg.hidden_dim, cfg.embed_dim, ds1.num_classes)
 
-            acc1, coh1 = evaluate_phase(model, loader1, cfg)
-            acc2, coh2 = evaluate_phase(model, loader2, cfg)
+            metrics1 = evaluate_phase(model, loader1, cfg)
+            metrics2 = evaluate_phase(model, loader2, cfg)
 
-            self.assertAlmostEqual(acc1, acc2, places=7)
-            self.assertAlmostEqual(coh1, coh2, places=7)
+            self.assertAlmostEqual(float(metrics1["val_accuracy"]), float(metrics2["val_accuracy"]), places=7)
+            self.assertAlmostEqual(float(metrics1["val_coherence"]), float(metrics2["val_coherence"]), places=7)
+            self.assertIn("val_loss", metrics1)
+            self.assertIn("val_loss", metrics2)
 
     def test_phase_initial_state_cloning_is_identical(self) -> None:
         cfg = Config()

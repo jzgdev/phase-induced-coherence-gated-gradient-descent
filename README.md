@@ -153,12 +153,39 @@ Useful flags:
 - `--eval_protocol same_track_fixed`
 - `--save_checkpoints`
 
+## Script Guide
+
+The repo currently contains two experiment runners:
+
+- `phase_coherence_test.py`
+  - Main experiment entrypoint.
+  - Use this for standard training runs, ablations, checkpoint generation, reviewer-facing metrics, and optional plot generation.
+  - This is the canonical script to reference in docs and reproductions.
+- `phase_coherence_test_instrumented.py`
+  - Older instrumentation-heavy runner kept for comparison and development history.
+  - Useful if you want to inspect or recover an earlier version of the logging workflow.
+  - Not the preferred entrypoint for new experiments unless you are explicitly comparing implementations.
+
+Supporting files:
+
+- `datasets.py`
+  - Dataset definitions and dataset-side utilities.
+  - Includes the synthetic paired-view task and the MedleyDB sample loader with deterministic sampling schedules.
+- `test_phase_coherence.py`
+  - Unit and regression tests for the current experiment pipeline.
+  - Covers paired synthetic references, deterministic MedleyDB validation sampling, shared phase-model initialization, and summary formatting behavior.
+- `requirements.txt`
+  - Environment dependency list.
+  - This file may need curation depending on your target environment, especially if it was exported from a larger system environment.
+
 ## Repository Layout
 
 ```text
 phase-induced-coherence-gated-gradient-descent/
 ├── phase_coherence_test.py
+├── phase_coherence_test_instrumented.py
 ├── datasets.py
+├── requirements.txt
 ├── test_phase_coherence.py
 └── README.md
 ```
