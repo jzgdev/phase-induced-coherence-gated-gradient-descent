@@ -183,6 +183,30 @@ class PhaseCoherenceTests(unittest.TestCase):
             self.assertEqual(x_a.shape[-1], int(0.1 * 8000))
             self.assertEqual(x_ref_a.shape[-1], int(0.1 * 8000))
 
+    def test_fma_small_skips_unreadable_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "fma"
+            audio_root = root / "fma_small"
+            metadata_root = root / "fma_metadata"
+
+            self._write_mock_fma_track(audio_root, 1, frequency=220.0)
+            self._write_mock_fma_track(audio_root, 3, frequency=440.0)
+            self._write_mock_fma_tracks_csv(metadata_root)
+            self._write_corrupt_fma_track(audio_root, 2)
+
+            train_ds = FMASmallPairs(
+                root=str(root),
+                metadata_root=str(metadata_root),
+                sample_rate=8000,
+                segment_seconds=0.1,
+                samples_per_epoch=4,
+                seed=7,
+                split="train",
+            )
+
+            self.assertEqual(len(train_ds.audio_cache), 1)
+            self.assertEqual(train_ds.audio_cache[0]["track_id"], 1)
+
     def _write_mock_track(self, audio_root: Path, track_name: str, frequency: float) -> None:
         track_dir = audio_root / track_name
         stem_dir = track_dir / f"{track_name}_STEMS"
@@ -236,6 +260,12 @@ class PhaseCoherenceTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+
+    def _write_corrupt_fma_track(self, audio_root: Path, track_id: int) -> None:
+        stem = f"{track_id:06d}"
+        track_dir = audio_root / stem[:3]
+        track_dir.mkdir(parents=True, exist_ok=True)
+        (track_dir / f"{stem}.wav").write_bytes(b"not-audio")
 
 
 if __name__ == "__main__":

@@ -355,6 +355,11 @@ def _load_fma_small_rows(
             if subset != "small" or not genre_top:
                 continue
 
+            all_labels.append(genre_top)
+
+            if split_name != split_map[split]:
+                continue
+
             track_id = int(row[0].strip())
             audio_path = _find_fma_audio_file(audio_root, track_id)
 
@@ -366,15 +371,13 @@ def _load_fma_small_rows(
                     "audio_path": audio_path,
                 }
             )
-            all_labels.append(genre_top)
 
     if label_names is None:
         resolved_label_names = sorted(set(all_labels))
     else:
         resolved_label_names = list(label_names)
 
-    wanted_split = split_map[split]
-    rows = [row for row in all_rows if row["split"] == wanted_split]
+    rows = all_rows
 
     if max_tracks > 0:
         rows = rows[:max_tracks]
@@ -439,6 +442,7 @@ class FMASmallPairs(Dataset):
         self.num_classes = len(self.label_names)
 
         self.audio_cache: List[Dict[str, object]] = []
+        skipped_rows = 0
 
         print(
             f"[FMASmallPairs] caching {len(rows)} tracks into RAM "
@@ -447,7 +451,17 @@ class FMASmallPairs(Dataset):
         )
 
         for idx, row in enumerate(rows):
-            audio = _load_mono(row["audio_path"], self.sample_rate)
+            try:
+                audio = _load_mono(row["audio_path"], self.sample_rate)
+            except Exception as exc:
+                skipped_rows += 1
+                print(
+                    f"[FMASmallPairs] skipping unreadable track "
+                    f"{row['track_id']} ({row['audio_path']}): {exc}",
+                    flush=True,
+                )
+                continue
+
             self.audio_cache.append(
                 {
                     "audio": audio,
@@ -462,6 +476,18 @@ class FMASmallPairs(Dataset):
                     f"[FMASmallPairs] cached {idx + 1}/{len(rows)} tracks",
                     flush=True,
                 )
+
+        if not self.audio_cache:
+            raise ValueError(
+                f"No usable FMA audio files found for split '{split}' under {self.audio_root}"
+            )
+
+        if skipped_rows > 0:
+            print(
+                f"[FMASmallPairs] skipped {skipped_rows} unreadable tracks "
+                f"(usable={len(self.audio_cache)})",
+                flush=True,
+            )
 
         self.schedule = self._build_schedule(epoch=0)
 
