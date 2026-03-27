@@ -135,7 +135,7 @@ class PhaseCoherenceTests(unittest.TestCase):
             audio_root = root / "fma_small"
             metadata_root = root / "fma_metadata"
 
-            self._write_mock_fma_track(audio_root, 1, frequency=220.0)
+            self._write_mock_fma_track(audio_root, 1, frequency=220.0, sample_rate=16000)
             self._write_mock_fma_track(audio_root, 2, frequency=330.0)
             self._write_mock_fma_track(audio_root, 3, frequency=440.0)
             self._write_mock_fma_track(audio_root, 4, frequency=550.0)
@@ -180,6 +180,8 @@ class PhaseCoherenceTests(unittest.TestCase):
             self.assertTrue(torch.allclose(x_a, x_b))
             self.assertTrue(torch.allclose(x_ref_a, x_ref_b))
             self.assertEqual(int(y_a), int(y_b))
+            self.assertEqual(x_a.shape[-1], int(0.1 * 8000))
+            self.assertEqual(x_ref_a.shape[-1], int(0.1 * 8000))
 
     def _write_mock_track(self, audio_root: Path, track_name: str, frequency: float) -> None:
         track_dir = audio_root / track_name
@@ -199,8 +201,14 @@ class PhaseCoherenceTests(unittest.TestCase):
         sf.write(stem_dir / f"{track_name}_STEM_01.wav", stem_a.numpy(), sr)
         sf.write(stem_dir / f"{track_name}_STEM_02.wav", stem_b.numpy(), sr)
 
-    def _write_mock_fma_track(self, audio_root: Path, track_id: int, frequency: float) -> None:
-        sr = 8000
+    def _write_mock_fma_track(
+        self,
+        audio_root: Path,
+        track_id: int,
+        frequency: float,
+        sample_rate: int = 8000,
+    ) -> None:
+        sr = sample_rate
         duration = 0.5
         num_samples = int(sr * duration)
         t = torch.linspace(0.0, duration, num_samples)

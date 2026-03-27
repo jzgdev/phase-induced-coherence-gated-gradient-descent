@@ -190,13 +190,19 @@ def _load_mono(path: Path, expected_sr: int) -> torch.Tensor:
         if audio.ndim == 2:
             audio = audio.mean(dim=0)
 
-    if sr != expected_sr:
-        raise ValueError(
-            f"Sample rate mismatch for {path}: got {sr}, expected {expected_sr}"
-        )
-
     if audio.ndim == 2:
         audio = audio.mean(dim=1)
+
+    if sr != expected_sr:
+        try:
+            import torchaudio.functional as AF
+        except ImportError as exc:
+            raise ValueError(
+                f"Sample rate mismatch for {path}: got {sr}, expected {expected_sr}, "
+                "and torchaudio is not available to resample."
+            ) from exc
+
+        audio = AF.resample(audio.unsqueeze(0), sr, expected_sr).squeeze(0)
 
     return audio
 
