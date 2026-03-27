@@ -1,186 +1,171 @@
 # Phase-Induced Coherence-Gated Gradient Descent
 
-Experimental training methodology for neural networks based on **phase-aligned interference between latent representations**.
+Research prototype for testing whether **phase coherence between latent representations** can improve supervised learning.
 
-This repository contains a **prototype implementation** testing the hypothesis that gradient updates weighted by **signal coherence** can improve representation learning.
+This repo compares standard training against variants that:
+- represent latent features as complex signals
+- align latent amplitude and phase to a paired reference
+- scale per-sample classification loss by a coherence-derived gate
 
----
+## Method
 
-# Abstract
-
-Most neural network training methods optimize prediction error directly using gradient descent.
-
-This project explores an alternative principle inspired by **wave interference and holography**:
-
-> Learning quality may improve if gradient updates are modulated by **phase-coherent interference between model representations and reference signals**, rather than relying solely on pointwise prediction error.
-
-Latent activations are treated as **complex-valued signals** with amplitude and phase. Training then encourages **constructive alignment** between signals while suppressing **destructive interference**.
-
----
-
-# Method
-
-## Complex Latent Representation
-
-Each latent component is represented as
+Each latent component is treated as a complex signal
 
 $$
 h_i = A_i e^{i\phi_i}
 $$
 
-Model activations are represented as complex signals:
+with model and reference signals
 
 $$
-\psi_\theta(x) = A_\theta(x)e^{i\phi_\theta(x)}
-$$
-
-Reference signals are defined as:
-
-$$
+\psi_\theta(x) = A_\theta(x)e^{i\phi_\theta(x)}, \quad
 \psi_r(x) = A_r(x)e^{i\phi_r(x)}
 $$
 
----
-
-## Interference and Coherence
-
-The phase-dependent interference term is
-
-$$
-I_{coh}(x) = |\psi_\theta||\psi_r|\cos(\phi_\theta - \phi_r)
-$$
-
-This yields a **coherence score**
+The coherence score is
 
 $$
 C(x) = \frac{1}{n}\sum_i |h_i||r_i|\cos(\phi_i - \phi_{r,i})
 $$
 
----
-
-## Coherence-Gated Gradient Updates
-
-Gradient updates are scaled according to coherence:
+and the coherence-gated update is
 
 $$
-g' = \alpha(x)g
+g' = \alpha(x) g
 $$
 
 $$
 \alpha(x) = \sigma(\beta C(x))
 $$
 
-This biases learning toward **stable, phase-aligned representations**.
+The implementation uses a centered, bounded gate during training so gating is gentle rather than unstable.
 
----
+## Current Protocol
 
-# Experimental Setup
+The repo currently supports two paired-reference settings:
 
-The prototype currently evaluates the method on **controlled phase-structured datasets**.
+### Synthetic paired-view dataset
 
-### Dataset
+- Classes differ mainly by relative phase offset between sinusoidal components.
+- Each item returns `(x, x_ref, y)`.
+- In the default `paired_view` mode, `x` and `x_ref` share the same class template and base phase but use independent amplitude jitter and noise, so the reference is correlated but non-identical.
+- `self` mode is still available for diagnostics, but it is not the default because it makes alignment too trivial.
 
-Synthetic sinusoidal signals where classes differ primarily by **phase relationships between frequency components**.
+### MedleyDB sample dataset
 
-This environment allows isolation of the hypothesis:
+- Each item returns a song mix segment, an aligned stem segment, and the track label.
+- Audio is cached in RAM to reduce repeated WAV loading.
+- Validation uses a fixed deterministic segment schedule.
+- Training uses a deterministic epoch-indexed schedule so all variants see the same sample order for a given seed and epoch.
 
-- phase-coded representations aid learning
-- coherence-weighted gradients improve updates
+Important: the current MedleyDB claim is limited to **same-track segment classification/learning**. This repo does **not** currently benchmark held-out track or artist generalization.
 
-without confounding effects from large real-world datasets.
+## Variants
 
----
+| Variant | Description |
+| --- | --- |
+| `baseline` | Standard real-valued embedding and classifier |
+| `complex` | Complex latent representation without alignment or gating |
+| `align` | Complex latent representation with amplitude and phase alignment losses |
+| `gate_only` | Complex latent representation with coherence-gated cross-entropy only |
+| `full` | Alignment losses plus coherence-gated cross-entropy |
 
-# Models Compared
+For fairness, all phase-based variants start each run from the same initial weights.
 
-The experiment evaluates four configurations:
+## Metrics And Artifacts
 
-| Model | Description |
-|------|-------------|
-| Baseline | Standard real-valued embedding |
-| Complex Latent | Real + imaginary latent representation |
-| Alignment | Complex latent + amplitude/phase alignment loss |
-| Full Method | Alignment + coherence-gated gradients |
-
----
-
-# Results
-
-Initial experiments show that combining:
-- complex latent representations
-- phase alignment regularization
-- coherence-modulated gradient scaling
-
-produces **consistent improvements over baseline models** on phase-structured classification tasks.
-
-Metrics tracked:
-- validation accuracy
-- coherence score
-- convergence speed
-
----
-
-# Installation
-
-Requires **Python 3.9+**
-Install dependencies:
-```bash
-pip install torch
-```
-
-# Running the Experiment
-
-`python phase_coherence_test.py`
-
-This will train and evaluate:
-1. Baseline model
-2. Complex latent model
-3. Alignment model
-4. Full coherence-gated model
-
-Training outputs include:
+Per epoch, the runner logs:
 - training loss
-- alidation accuracy
-- coherence statistics
+- training coherence
+- mean gate value
+- amplitude alignment loss
+- phase alignment loss
+- validation accuracy
+- validation coherence
+- epoch time
 
-# Repository Structure
+Artifacts are written under:
 
+```text
+results/<dataset>/<eval_protocol>/seed_<seed>/
 ```
+
+with one `epochs.jsonl` file per variant plus `config.json` and `run_summary.json`. A cross-run `summary.json` is written at:
+
+```text
+results/<dataset>/<eval_protocol>/summary.json
+```
+
+Checkpoints remain optional and are saved as:
+
+```text
+checkpoints/baseline_best.pt
+checkpoints/complex_best.pt
+checkpoints/align_best.pt
+checkpoints/gate_only_best.pt
+checkpoints/full_best.pt
+```
+
+## Installation
+
+Requires Python 3.9+.
+
+```bash
+pip install torch soundfile
+```
+
+## Running Experiments
+
+Default synthetic run:
+
+```bash
+python phase_coherence_test.py
+```
+
+Run all publication-style ablations explicitly:
+
+```bash
+python phase_coherence_test.py \
+  --dataset synthetic \
+  --variants baseline,complex,align,gate_only,full \
+  --num_runs 3 \
+  --results_dir results
+```
+
+Run on MedleyDB sample data:
+
+```bash
+python phase_coherence_test.py \
+  --dataset medleydb_sample \
+  --medleydb_root /path/to/MedleyDB_sample \
+  --batch_size 16 \
+  --num_workers 4 \
+  --eval_protocol same_track_fixed
+```
+
+Useful flags:
+- `--variants baseline,complex,align,gate_only,full`
+- `--results_dir PATH`
+- `--synthetic_reference_mode self|paired_view`
+- `--eval_protocol same_track_fixed`
+- `--save_checkpoints`
+
+## Repository Layout
+
+```text
 phase-induced-coherence-gated-gradient-descent/
-├── phase_coherence_test.py   # experiment runner
-├── datasets.py               # synthetic + audio datasets
-├── checkpoints/              # trained models
+├── phase_coherence_test.py
+├── datasets.py
+├── test_phase_coherence.py
 └── README.md
 ```
 
-# Reproducibility
+## Notes
 
-Experiments can be reproduced by running:
+- This is a research prototype, not a production training framework.
+- Reported comparisons are intended to be seed-matched and initialization-matched.
+- Publication-style reporting in this repo uses paired per-seed deltas, not significance testing.
 
-`python phase_coherence_test.py`
+## License
 
-Configuration parameters are defined in the script and include:
-- dataset type
-- training epochs
-- batch size
-- coherence gating parameters
-
-# Future Research Directions
-
-Possible extensions of this method include:
-- evaluation on real audio datasets
-- contrastive representation learning
-- complex-valued neural architectures
-- multimodal representation alignment
-- applications in generative models
-
-# Status
-
-⚠️ Research prototype
-
-This repository explores a training hypothesis rather than providing a production-ready algorithm.
-
-The goal is to evaluate whether coherence-gated gradient descent improves representation learning.
-
-# License
 MIT
