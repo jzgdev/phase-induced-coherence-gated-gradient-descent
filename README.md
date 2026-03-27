@@ -106,6 +106,9 @@ checkpoints/gate_only_best.pt
 checkpoints/full_best.pt
 ```
 
+[HuggingFace Repo](https://huggingface.co/jzgdev/phase-induced-coherence-gated-gradient-descent)
+
+
 ## Installation
 
 Requires Python 3.9+.
