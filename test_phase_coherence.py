@@ -7,7 +7,7 @@ import soundfile as sf
 import torch
 from torch.utils.data import DataLoader
 
-from datasets import MedleyDBSamplePairs, PhaseStructuredDataset
+from datasets import FMASmallPairs, MedleyDBSamplePairs, PhaseStructuredDataset
 from phase_coherence_test import (
     Config,
     PhaseModel,
@@ -129,6 +129,58 @@ class PhaseCoherenceTests(unittest.TestCase):
         self.assertIn("(n=1)", line)
         self.assertNotIn("nan", line.lower())
 
+    def test_fma_small_metadata_and_schedule_are_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "fma"
+            audio_root = root / "fma_small"
+            metadata_root = root / "fma_metadata"
+
+            self._write_mock_fma_track(audio_root, 1, frequency=220.0)
+            self._write_mock_fma_track(audio_root, 2, frequency=330.0)
+            self._write_mock_fma_track(audio_root, 3, frequency=440.0)
+            self._write_mock_fma_track(audio_root, 4, frequency=550.0)
+            self._write_mock_fma_tracks_csv(metadata_root)
+
+            train_ds = FMASmallPairs(
+                root=str(root),
+                metadata_root=str(metadata_root),
+                sample_rate=8000,
+                segment_seconds=0.1,
+                samples_per_epoch=4,
+                seed=7,
+                split="train",
+            )
+            val_ds_a = FMASmallPairs(
+                root=str(root),
+                metadata_root=str(metadata_root),
+                sample_rate=8000,
+                segment_seconds=0.1,
+                samples_per_epoch=4,
+                seed=7,
+                split="val",
+                label_names=train_ds.label_names,
+            )
+            val_ds_b = FMASmallPairs(
+                root=str(root),
+                metadata_root=str(metadata_root),
+                sample_rate=8000,
+                segment_seconds=0.1,
+                samples_per_epoch=4,
+                seed=7,
+                split="val",
+                label_names=train_ds.label_names,
+            )
+
+            self.assertEqual(train_ds.num_classes, 2)
+            self.assertEqual(val_ds_a.label_names, train_ds.label_names)
+            self.assertEqual(val_ds_a.schedule, val_ds_b.schedule)
+
+            x_a, x_ref_a, y_a = val_ds_a[0]
+            x_b, x_ref_b, y_b = val_ds_b[0]
+            self.assertTrue(torch.allclose(x_a, x_b))
+            self.assertTrue(torch.allclose(x_ref_a, x_ref_b))
+            self.assertEqual(int(y_a), int(y_b))
+
     def _write_mock_track(self, audio_root: Path, track_name: str, frequency: float) -> None:
         track_dir = audio_root / track_name
         stem_dir = track_dir / f"{track_name}_STEMS"
@@ -146,6 +198,36 @@ class PhaseCoherenceTests(unittest.TestCase):
         sf.write(track_dir / f"{track_name}_MIX.wav", mix.numpy(), sr)
         sf.write(stem_dir / f"{track_name}_STEM_01.wav", stem_a.numpy(), sr)
         sf.write(stem_dir / f"{track_name}_STEM_02.wav", stem_b.numpy(), sr)
+
+    def _write_mock_fma_track(self, audio_root: Path, track_id: int, frequency: float) -> None:
+        sr = 8000
+        duration = 0.5
+        num_samples = int(sr * duration)
+        t = torch.linspace(0.0, duration, num_samples)
+        audio = 0.6 * torch.sin(2.0 * math.pi * frequency * t)
+
+        stem = f"{track_id:06d}"
+        track_dir = audio_root / stem[:3]
+        track_dir.mkdir(parents=True, exist_ok=True)
+        sf.write(track_dir / f"{stem}.wav", audio.numpy(), sr)
+
+    def _write_mock_fma_tracks_csv(self, metadata_root: Path) -> None:
+        metadata_root.mkdir(parents=True, exist_ok=True)
+        tracks_csv = metadata_root / "tracks.csv"
+        tracks_csv.write_text(
+            "\n".join(
+                [
+                    "track_id,track,set,set",
+                    ",genre_top,subset,split",
+                    "1,Rock,small,training",
+                    "2,Jazz,small,training",
+                    "3,Rock,small,validation",
+                    "4,Jazz,small,validation",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
 
 if __name__ == "__main__":

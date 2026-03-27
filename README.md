@@ -7,6 +7,8 @@ This repo compares standard training against variants that:
 - align latent amplitude and phase to a paired reference
 - scale per-sample classification loss by a coherence-derived gate
 
+<img src="diagram.png" />
+
 ## Method
 
 Each latent component is treated as a complex signal
@@ -42,7 +44,7 @@ The implementation uses a centered, bounded gate during training so gating is ge
 
 ## Current Protocol
 
-The repo currently supports two paired-reference settings:
+The repo currently supports three paired-reference settings:
 
 ### Synthetic paired-view dataset
 
@@ -59,6 +61,13 @@ The repo currently supports two paired-reference settings:
 - Training uses a deterministic epoch-indexed schedule so all variants see the same sample order for a given seed and epoch.
 
 Important: the current MedleyDB claim is limited to **same-track segment classification/learning**. This repo does **not** currently benchmark held-out track or artist generalization.
+
+### FMA small dataset
+
+- Each item returns two segments sampled from the same FMA track plus the official top-genre label.
+- Labels and train/validation splits are taken from `fma_metadata/tracks.csv`.
+- The paired reference is built from a second segment of the same track, since FMA-small does not provide aligned stems.
+- Validation uses the official `validation` split from the metadata, not a random holdout.
 
 ## Variants
 
@@ -146,11 +155,25 @@ python phase_coherence_test.py \
   --eval_protocol same_track_fixed
 ```
 
+Run on FMA small:
+
+```bash
+python phase_coherence_test.py \
+  --dataset fma_small \
+  --fma_root /workspace/data/fma \
+  --fma_metadata_root /workspace/data/fma/fma_metadata \
+  --batch_size 16 \
+  --num_workers 4 \
+  --eval_protocol same_track_fixed
+```
+
 Useful flags:
 - `--variants baseline,complex,align,gate_only,full`
 - `--results_dir PATH`
 - `--synthetic_reference_mode self|paired_view`
 - `--eval_protocol same_track_fixed`
+- `--fma_root PATH`
+- `--fma_metadata_root PATH`
 - `--save_checkpoints`
 
 ## Script Guide
@@ -160,6 +183,7 @@ The repo currently contains two experiment runners:
 - `phase_coherence_test.py`
   - Main experiment entrypoint.
   - Use this for standard training runs, ablations, checkpoint generation, reviewer-facing metrics, and optional plot generation.
+  - Supports `synthetic`, `medleydb_sample`, and `fma_small`.
   - This is the canonical script to reference in docs and reproductions.
 - `phase_coherence_test_instrumented.py`
   - Older instrumentation-heavy runner kept for comparison and development history.

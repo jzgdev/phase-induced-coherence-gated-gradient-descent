@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from datasets import MedleyDBSamplePairs, PhaseStructuredDataset
+from datasets import FMASmallPairs, MedleyDBSamplePairs, PhaseStructuredDataset
 
 
 ALL_VARIANTS: Tuple[str, ...] = ("baseline", "complex", "align", "gate_only", "full")
@@ -30,6 +30,8 @@ DEFAULT_ANALYSIS_VARIANTS: Tuple[str, ...] = ("baseline", "full")
 class Config:
     dataset: str = "synthetic"  # synthetic | medleydb_sample
     medleydb_root: str = "data/MedleyDB_sample"
+    fma_root: str = "data/fma"
+    fma_metadata_root: str = ""
 
     seq_len: int = 256
     num_classes: int = 4
@@ -64,6 +66,7 @@ class Config:
     sample_rate: int = 44100
     segment_seconds: float = 2.0
     medley_max_tracks: int = 0
+    fma_max_tracks: int = 0
     eval_protocol: str = "same_track_fixed"
 
     lambda_amp: float = 0.10
@@ -652,6 +655,31 @@ def build_datasets(cfg: Config):
             seed=cfg.seed + 10_000,
             track_names=train_ds.track_names,
             split="val",
+        )
+        return train_ds, val_ds, train_ds.num_classes
+
+    if cfg.dataset == "fma_small":
+        metadata_root = cfg.fma_metadata_root or None
+        train_ds = FMASmallPairs(
+            root=cfg.fma_root,
+            metadata_root=metadata_root,
+            sample_rate=cfg.sample_rate,
+            segment_seconds=cfg.segment_seconds,
+            max_tracks=cfg.fma_max_tracks,
+            samples_per_epoch=cfg.train_samples_per_epoch,
+            seed=cfg.seed,
+            split="train",
+        )
+        val_ds = FMASmallPairs(
+            root=cfg.fma_root,
+            metadata_root=metadata_root,
+            sample_rate=cfg.sample_rate,
+            segment_seconds=cfg.segment_seconds,
+            max_tracks=cfg.fma_max_tracks,
+            samples_per_epoch=cfg.val_samples_per_epoch,
+            seed=cfg.seed + 10_000,
+            split="val",
+            label_names=train_ds.label_names,
         )
         return train_ds, val_ds, train_ds.num_classes
 
@@ -1647,8 +1675,10 @@ def run_once(cfg: Config) -> Dict[str, VariantRunArtifacts]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Phase coherence experiments")
 
-    parser.add_argument("--dataset", type=str, default="synthetic", choices=["synthetic", "medleydb_sample"])
+    parser.add_argument("--dataset", type=str, default="synthetic", choices=["synthetic", "medleydb_sample", "fma_small"])
     parser.add_argument("--medleydb_root", type=str, default="data/MedleyDB_sample")
+    parser.add_argument("--fma_root", type=str, default="data/fma")
+    parser.add_argument("--fma_metadata_root", type=str, default="")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--num_runs", type=int, default=3)
@@ -1669,6 +1699,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample_rate", type=int, default=44100)
     parser.add_argument("--segment_seconds", type=float, default=2.0)
     parser.add_argument("--medley_max_tracks", type=int, default=0)
+    parser.add_argument("--fma_max_tracks", type=int, default=0)
     parser.add_argument("--train_samples_per_epoch", type=int, default=1024)
     parser.add_argument("--val_samples_per_epoch", type=int, default=256)
     parser.add_argument("--log_every_n_batches", type=int, default=10)
@@ -1686,6 +1717,8 @@ def main() -> None:
         Config(),
         dataset=args.dataset,
         medleydb_root=args.medleydb_root,
+        fma_root=args.fma_root,
+        fma_metadata_root=args.fma_metadata_root,
         epochs=args.epochs,
         batch_size=args.batch_size,
         num_runs=args.num_runs,
@@ -1694,6 +1727,7 @@ def main() -> None:
         sample_rate=args.sample_rate,
         segment_seconds=args.segment_seconds,
         medley_max_tracks=args.medley_max_tracks,
+        fma_max_tracks=args.fma_max_tracks,
         train_samples_per_epoch=args.train_samples_per_epoch,
         val_samples_per_epoch=args.val_samples_per_epoch,
         log_every_n_batches=args.log_every_n_batches,
