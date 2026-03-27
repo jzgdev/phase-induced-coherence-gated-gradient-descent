@@ -22,13 +22,23 @@ Latent activations are treated as **complex-valued signals** with amplitude and 
 
 ## Complex Latent Representation
 
+Each latent component is represented as
+
+$$
+h_i = A_i e^{i\phi_i}
+$$
+
 Model activations are represented as complex signals:
 
-<img src="https://latex.codecogs.com/svg.image?\psi_\theta(x)=A_\theta(x)e^{i\phi_\theta(x)}" />
+$$
+\psi_\theta(x) = A_\theta(x)e^{i\phi_\theta(x)}
+$$
 
 Reference signals are defined as:
 
-<img src="https://latex.codecogs.com/svg.image?\psi_r(x)=A_r(x)e^{i\phi_r(x)}" />
+$$
+\psi_r(x) = A_r(x)e^{i\phi_r(x)}
+$$
 
 ---
 
@@ -36,21 +46,28 @@ Reference signals are defined as:
 
 The phase-dependent interference term is
 
-<img src="https://latex.codecogs.com/svg.image?I_{coh}(x)=|\psi_\theta||\psi_r|\cos(\phi_\theta-\phi_r)" />
+$$
+I_{coh}(x) = |\psi_\theta||\psi_r|\cos(\phi_\theta - \phi_r)
+$$
 
 This yields a **coherence score**
 
-<img src="https://latex.codecogs.com/svg.image?C(x)=\frac{1}{n}\sum_i|h_i||r_i|\cos(\phi_i-\phi_{r,i})" />
-
+$$
+C(x) = \frac{1}{n}\sum_i |h_i||r_i|\cos(\phi_i - \phi_{r,i})
+$$
 ---
 
 ## Coherence-Gated Gradient Updates
 
 Gradient updates are scaled according to coherence:
 
-<img src="https://latex.codecogs.com/svg.image?g'=\alpha(x)g" />
+$$
+g' = \alpha(x)g
+$$
 
-<img src="https://latex.codecogs.com/svg.image?\alpha(x)=\sigma(\beta C(x))" />
+$$
+\alpha(x) = \sigma(\beta C(x))
+$$
 
 This biases learning toward **stable, phase-aligned representations**.
 
