@@ -332,13 +332,18 @@ def make_loaders(cfg: Config):
         shuffle=True,
         num_workers=cfg.num_workers,
         drop_last=False,
+        pin_memory=(cfg.device == "cuda"),
+        persistent_workers=(cfg.num_workers > 0),
     )
+
     val_loader = DataLoader(
         val_ds,
         batch_size=cfg.batch_size,
         shuffle=False,
         num_workers=cfg.num_workers,
         drop_last=False,
+        pin_memory=(cfg.device == "cuda"),
+        persistent_workers=(cfg.num_workers > 0),
     )
 
     print(

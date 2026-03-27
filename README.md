@@ -2,30 +2,27 @@
 
 Experimental training methodology for neural networks based on **phase-aligned interference between latent representations**.
 
-This repository contains a **minimal prototype implementation** testing the hypothesis that gradient updates weighted by **signal coherence** can improve representation learning.
+This repository contains a **prototype implementation** testing the hypothesis that gradient updates weighted by **signal coherence** can improve representation learning.
 
 ---
 
-# Overview
+# Abstract
 
-Most neural network training methods optimize prediction error directly via gradient descent.
+Most neural network training methods optimize prediction error directly using gradient descent.
 
-This project explores an alternative idea:
+This project explores an alternative principle inspired by **wave interference and holography**:
 
-> Learning quality may improve if gradient updates are modulated by **phase-coherent interference between a model signal and a reference signal**, rather than relying solely on pointwise prediction error.
+> Learning quality may improve if gradient updates are modulated by **phase-coherent interference between model representations and reference signals**, rather than relying solely on pointwise prediction error.
 
-Inspired by holographic interference principles, the method represents latent activations as **complex signals** with:
-
-- amplitude  
-- phase  
-
-Training then prioritizes **constructively aligned signals** and suppresses updates from **destructively interfering signals**.
+Latent activations are treated as **complex-valued signals** with amplitude and phase. Training then encourages **constructive alignment** between signals while suppressing **destructive interference**.
 
 ---
 
-# Key Idea
+# Method
 
-Model activations are treated as complex-valued signals:
+## Complex Latent Representation
+
+Model activations are represented as complex signals:
 
 <img src="https://latex.codecogs.com/svg.image?\psi_\theta(x)=A_\theta(x)e^{i\phi_\theta(x)}" />
 
@@ -33,100 +30,139 @@ Reference signals are defined as:
 
 <img src="https://latex.codecogs.com/svg.image?\psi_r(x)=A_r(x)e^{i\phi_r(x)}" />
 
-The phase-dependent interference term is:
+---
+
+## Interference and Coherence
+
+The phase-dependent interference term is
 
 <img src="https://latex.codecogs.com/svg.image?I_{coh}(x)=|\psi_\theta||\psi_r|\cos(\phi_\theta-\phi_r)" />
 
-This defines a coherence score:
+This yields a **coherence score**
 
 <img src="https://latex.codecogs.com/svg.image?C(x)=\frac{1}{n}\sum_i|h_i||r_i|\cos(\phi_i-\phi_{r,i})" />
 
-Gradient updates are scaled by coherence:
+---
+
+## Coherence-Gated Gradient Updates
+
+Gradient updates are scaled according to coherence:
 
 <img src="https://latex.codecogs.com/svg.image?g'=\alpha(x)g" />
 
-<img src="https://latex.codecogs.com/svg.image?α(x)=σ(βC(x))" />
+<img src="https://latex.codecogs.com/svg.image?\alpha(x)=\sigma(\beta C(x))" />
 
-This biases training toward **stable, phase-aligned signals**.
+This biases learning toward **stable, phase-aligned representations**.
 
 ---
 
-# Repository Structure
-```
-├── phase_coherence_test.py
-├── README.md
-```
-# First Experiment
-The initial experiment uses a synthetic sinusoidal dataset where classes differ partly by phase relationships between frequency components.
+# Experimental Setup
 
-This environment allows us to test whether:
+The prototype currently evaluates the method on **controlled phase-structured datasets**.
 
-- phase-coded representations help learning
-- coherence gating improves gradient updates
+### Dataset
 
-without confounding factors from large real-world datasets.
+Synthetic sinusoidal signals where classes differ primarily by **phase relationships between frequency components**.
+
+This environment allows isolation of the hypothesis:
+
+- phase-coded representations aid learning
+- coherence-weighted gradients improve updates
+
+without confounding effects from large real-world datasets.
+
+---
+
+# Models Compared
+
+The experiment evaluates four configurations:
+
+| Model | Description |
+|------|-------------|
+| Baseline | Standard real-valued embedding |
+| Complex Latent | Real + imaginary latent representation |
+| Alignment | Complex latent + amplitude/phase alignment loss |
+| Full Method | Alignment + coherence-gated gradients |
+
+---
+
+# Results
+
+Initial experiments show that combining:
+- complex latent representations
+- phase alignment regularization
+- coherence-modulated gradient scaling
+
+produces **consistent improvements over baseline models** on phase-structured classification tasks.
+
+Metrics tracked:
+- validation accuracy
+- coherence score
+- convergence speed
+
+---
 
 # Installation
 
-Requires Python 3.9+.
-
+Requires **Python 3.9+**
 Install dependencies:
-`pip install torch`
+```bash
+pip install torch
+```
 
-Running the Experiment
+# Running the Experiment
 
-Run:
 `python phase_coherence_test.py`
 
-This will train two models:
+This will train and evaluate:
 1. Baseline model
-- Standard real-valued embedding + classifier.
+2. Complex latent model
+3. Alignment model
+4. Full coherence-gated model
 
-2. Experimental model
-- complex-style latent representation (real + imaginary channels)
-- amplitude and phase extraction
-- coherence-gated loss scaling
-
-# Training outputs:
+Training outputs include:
 - training loss
-- validation accuracy
+- alidation accuracy
 - coherence statistics
 
-# Evaluation
-The experiment compares:
-- baseline validation accuracy
-- experimental validation accuracy
-- coherence statistics
+# Repository Structure
 
-Metrics include:
-- classification accuracy
-- coherence score trends
-- convergence speed
+```
+phase-induced-coherence-gated-gradient-descent/
+├── phase_coherence_test.py   # experiment runner
+├── datasets.py               # synthetic + audio datasets
+├── checkpoints/              # trained models
+└── README.md
+```
 
-# Expected Outcomes
-If the hypothesis holds, the phase-coherence model may show:
+# Reproducibility
 
-- higher final validation accuracy
-- faster convergence
-- stronger performance on phase-defined classes
-- positive correlation between coherence and prediction correctness
+Experiments can be reproduced by running:
 
-# Research Direction
-This prototype tests the feasibility of coherence-gated gradient updates.
+`python phase_coherence_test.py`
 
-Future work includes:
+Configuration parameters are defined in the script and include:
+- dataset type
+- training epochs
+- batch size
+- coherence gating parameters
 
-- contrastive embedding experiments on audio datasets
-- evaluation under noisy or limited-data regimes
+# Future Research Directions
+
+Possible extensions of this method include:
+- evaluation on real audio datasets
+- contrastive representation learning
 - complex-valued neural architectures
-- multimodal alignment tasks
+- multimodal representation alignment
+- applications in generative models
 
 # Status
-This repository contains a research prototype, not a production training method.
-The goal is to determine whether phase-coherence gating has measurable benefits in representation learning.
 
-# Results
-We observe that combining complex latent representations with phase alignment regularization and coherence-modulated gradient scaling yields consistent improvements over baseline models on synthetic phase-structured classification tasks.
+⚠️ Research prototype
+
+This repository explores a training hypothesis rather than providing a production-ready algorithm.
+
+The goal is to evaluate whether coherence-gated gradient descent improves representation learning.
 
 # License
 MIT

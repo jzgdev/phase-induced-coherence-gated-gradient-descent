@@ -1,12 +1,17 @@
 import math
 import random
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 import soundfile as sf
 
+
+# ============================================================
+# Synthetic dataset
+# ============================================================
 
 class PhaseStructuredDataset(Dataset):
     """
@@ -59,11 +64,20 @@ class PhaseStructuredDataset(Dataset):
         return self.samples[idx], self.labels[idx]
 
 
+# ============================================================
+# MedleyDB helpers
+# ============================================================
+
+def _is_junk(path: Path) -> bool:
+    name = path.name
+    return name.startswith("._") or name == ".DS_Store"
+
+
 def _resolve_audio_root(root: str) -> Path:
     """
     Accept either:
-    - /workspace/medleydb/MedleyDB_sample
-    - /workspace/medleydb/MedleyDB_sample/Audio
+    - /workspace/data/MedleyDB_sample
+    - /workspace/data/MedleyDB_sample/Audio
     """
     root_path = Path(root)
 
@@ -82,7 +96,7 @@ def _resolve_audio_root(root: str) -> Path:
 def _find_mix_file(track_dir: Path) -> Path:
     candidates = [
         p for p in sorted(track_dir.glob("*_MIX.wav"))
-        if not p.name.startswith("._") and p.name != ".DS_Store"
+        if not _is_junk(p)
     ]
     if not candidates:
         raise FileNotFoundError(f"No *_MIX.wav found in {track_dir}")
@@ -92,7 +106,7 @@ def _find_mix_file(track_dir: Path) -> Path:
 def _find_stem_dir(track_dir: Path) -> Path:
     candidates = [
         p for p in sorted(track_dir.glob("*_STEMS"))
-        if not p.name.startswith("._") and p.name != ".DS_Store"
+        if not _is_junk(p)
     ]
     if not candidates:
         raise FileNotFoundError(f"No *_STEMS directory found in {track_dir}")
@@ -102,7 +116,7 @@ def _find_stem_dir(track_dir: Path) -> Path:
 def _find_stem_files(stem_dir: Path) -> List[Path]:
     stems = [
         p for p in sorted(stem_dir.glob("*.wav"))
-        if not p.name.startswith("._") and p.name != ".DS_Store"
+        if not _is_junk(p)
     ]
     if not stems:
         raise FileNotFoundError(f"No stem wavs found in {stem_dir}")
@@ -129,6 +143,7 @@ def _extract_aligned_pair(
     mix_audio: torch.Tensor,
     stem_audio: torch.Tensor,
     segment_samples: int,
+    rng: random.Random,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     max_len = min(len(mix_audio), len(stem_audio))
 
@@ -137,11 +152,11 @@ def _extract_aligned_pair(
 
     if max_len < segment_samples:
         pad = segment_samples - max_len
-        mix_audio = torch.nn.functional.pad(mix_audio[:max_len], (0, pad))
-        stem_audio = torch.nn.functional.pad(stem_audio[:max_len], (0, pad))
+        mix_audio = F.pad(mix_audio[:max_len], (0, pad))
+        stem_audio = F.pad(stem_audio[:max_len], (0, pad))
         start = 0
     else:
-        start = random.randint(0, max_len - segment_samples)
+        start = rng.randint(0, max_len - segment_samples)
 
     mix_seg = mix_audio[start:start + segment_samples]
     stem_seg = stem_audio[start:start + segment_samples]
@@ -152,6 +167,10 @@ def _extract_aligned_pair(
     return mix_seg.unsqueeze(0), stem_seg.unsqueeze(0)
 
 
+# ============================================================
+# MedleyDB Sample dataset
+# ============================================================
+
 class MedleyDBSamplePairs(Dataset):
     """
     Each item:
@@ -160,7 +179,10 @@ class MedleyDBSamplePairs(Dataset):
     - y     = track label
 
     Train/val use the SAME track label space.
-    They differ only in RNG seed + repeated random segment sampling.
+    Repeated sampling is handled by samples_per_epoch.
+
+    IMPORTANT:
+    This class caches audio in RAM to avoid repeated disk I/O.
     """
 
     def __init__(
@@ -183,7 +205,7 @@ class MedleyDBSamplePairs(Dataset):
 
         all_track_dirs = sorted([
             p for p in self.audio_root.iterdir()
-            if p.is_dir() and not p.name.startswith("._") and p.name != ".DS_Store"
+            if p.is_dir() and not _is_junk(p)
         ])
 
         if max_tracks > 0:
@@ -201,7 +223,8 @@ class MedleyDBSamplePairs(Dataset):
 
         label_map = {name: idx for idx, name in enumerate(self.track_names)}
 
-        self.items: List[Tuple[Path, List[Path], int]] = []
+        # Metadata: file paths
+        self.items: List[Tuple[Path, List[Path], int, str]] = []
 
         for track_dir in all_track_dirs:
             if track_dir.name not in label_map:
@@ -212,26 +235,63 @@ class MedleyDBSamplePairs(Dataset):
             stem_files = _find_stem_files(stem_dir)
             label = label_map[track_dir.name]
 
-            self.items.append((mix_file, stem_files, label))
+            self.items.append((mix_file, stem_files, label, track_dir.name))
 
         if not self.items:
             raise ValueError("No usable MedleyDB Sample items found.")
 
         self.num_classes = len(self.track_names)
 
+        # Audio cache: one entry per track
+        # Each entry is:
+        # {
+        #   "mix": Tensor[T],
+        #   "stems": List[Tensor[T]],
+        #   "label": int,
+        #   "name": str,
+        # }
+        self.audio_cache: List[Dict[str, object]] = []
+
+        print(
+            f"[MedleyDBSamplePairs] caching {len(self.items)} tracks into RAM "
+            f"(split-independent label space: {self.num_classes} classes)",
+            flush=True,
+        )
+
+        for idx, (mix_file, stem_files, label, track_name) in enumerate(self.items):
+            mix_audio = _load_mono(mix_file, self.sample_rate)
+            stem_audios = [_load_mono(stem_file, self.sample_rate) for stem_file in stem_files]
+
+            self.audio_cache.append(
+                {
+                    "mix": mix_audio,
+                    "stems": stem_audios,
+                    "label": label,
+                    "name": track_name,
+                }
+            )
+
+            if idx % 5 == 0 or idx == len(self.items) - 1:
+                print(
+                    f"[MedleyDBSamplePairs] cached {idx + 1}/{len(self.items)} tracks",
+                    flush=True,
+                )
+
     def __len__(self) -> int:
         return self.samples_per_epoch
 
     def __getitem__(self, idx: int):
-        mix_file, stem_files, label = self.items[self.rng.randrange(len(self.items))]
+        entry = self.audio_cache[self.rng.randrange(len(self.audio_cache))]
 
-        mix_audio = _load_mono(mix_file, self.sample_rate)
-        stem_audio = _load_mono(self.rng.choice(stem_files), self.sample_rate)
+        mix_audio = entry["mix"]
+        stem_audio = self.rng.choice(entry["stems"])
+        label = entry["label"]
 
         x, x_ref = _extract_aligned_pair(
             mix_audio,
             stem_audio,
             self.segment_samples,
+            self.rng,
         )
 
         return x, x_ref, torch.tensor(label, dtype=torch.long)
