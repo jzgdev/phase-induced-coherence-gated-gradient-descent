@@ -1696,7 +1696,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generate_plots", action="store_true")
     parser.add_argument("--disable_gradient_cosine", action="store_true")
 
-    parser.add_argument("--sample_rate", type=int, default=44100)
+    parser.add_argument("--sample_rate", type=int, default=48000)
     parser.add_argument("--segment_seconds", type=float, default=2.0)
     parser.add_argument("--medley_max_tracks", type=int, default=0)
     parser.add_argument("--fma_max_tracks", type=int, default=0)
