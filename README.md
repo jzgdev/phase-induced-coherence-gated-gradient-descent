@@ -55,6 +55,7 @@ This yields a **coherence score**
 $$
 C(x) = \frac{1}{n}\sum_i |h_i||r_i|\cos(\phi_i - \phi_{r,i})
 $$
+
 ---
 
 ## Coherence-Gated Gradient Updates
