@@ -63,7 +63,7 @@ class Config:
     phase_jitter: float = 0.35
     noise_std: float = 0.2
 
-    sample_rate: int = 44100
+    sample_rate: int = 48000
     segment_seconds: float = 2.0
     medley_max_tracks: int = 0
     fma_max_tracks: int = 0
