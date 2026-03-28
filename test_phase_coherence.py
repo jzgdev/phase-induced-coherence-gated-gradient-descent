@@ -1,3 +1,4 @@
+import json
 import math
 import tempfile
 import unittest
@@ -17,6 +18,8 @@ from phase_coherence_test import (
     compute_summary_stats,
     evaluate_phase,
     format_summary_line,
+    resolve_effective_config,
+    save_effective_run_config,
 )
 
 
@@ -129,6 +132,25 @@ class PhaseCoherenceTests(unittest.TestCase):
         self.assertIsNone(stats["std"])
         self.assertIn("(n=1)", line)
         self.assertNotIn("nan", line.lower())
+
+    def test_fma_config_is_normalized_for_protocol_loss_and_warmup(self) -> None:
+        cfg = Config(dataset="fma_small")
+        effective = resolve_effective_config(cfg)
+
+        self.assertEqual(effective.eval_protocol, "official_split")
+        self.assertEqual(effective.loss_target, 1.8)
+        self.assertEqual(effective.gate_warmup_epochs, 0)
+
+    def test_effective_run_config_saves_resolved_num_classes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            cfg = Config(dataset="fma_small", num_classes=4)
+
+            save_effective_run_config(cfg, run_dir, num_classes=8)
+            payload = json.loads((run_dir / "config.json").read_text())
+
+            self.assertEqual(payload["dataset"], "fma_small")
+            self.assertEqual(payload["num_classes"], 8)
 
     def test_fma_small_metadata_and_schedule_are_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

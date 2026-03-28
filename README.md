@@ -19,7 +19,7 @@ This repo compares standard training against variants that:
 The canonical runner is [phase_coherence_test.py](phase_coherence_test.py). It supports:
 - synthetic paired-view experiments
 - MedleyDB sample same-track segment learning
-- FMA-small same-track paired-segment classification
+- FMA-small official-split genre classification with paired same-track segments
 - seed-matched ablations
 - checkpoint saving
 - structured JSON and JSONL results
@@ -82,6 +82,10 @@ Current claim boundary:
 - Since FMA-small has no aligned stems, the paired reference is a second segment from the same track.
 - Validation uses the official `validation` split.
 - Mixed sample rates are resampled on load, and unreadable MP3s are skipped during caching.
+
+Current claim boundary:
+- FMA-small results in this repo measure top-genre classification under the official FMA train/validation split.
+- This is not the same protocol as MedleyDB same-track segment learning, so the numbers should not be compared directly.
 
 ## Variants
 
@@ -202,7 +206,7 @@ python phase_coherence_test.py \
   --fma_metadata_root /workspace/data/fma/fma_metadata \
   --batch_size 16 \
   --num_workers 4 \
-  --eval_protocol same_track_fixed
+  --eval_protocol official_split
 ```
 
 Small FMA smoke test:
@@ -226,8 +230,8 @@ python phase_coherence_test.py \
 - `--analysis_variants baseline,full`
 - `--results_dir PATH`
 - `--synthetic_reference_mode self|paired_view`
-- `--eval_protocol same_track_fixed`
-- `--loss_target 1.0`
+- `--eval_protocol same_track_fixed|official_split`
+- `--loss_target FLOAT`
 - `--step_log_every_n_batches 1`
 - `--grad_variance_steps 200`
 - `--rolling_window 25`
@@ -238,6 +242,11 @@ python phase_coherence_test.py \
 - `--save_checkpoints`
 
 If `--generate_plots` is enabled, `matplotlib` must be installed in the runtime where training is executed.
+
+FMA-specific normalization:
+- If `--dataset fma_small` and `--eval_protocol same_track_fixed` is left at the old default, the runner normalizes it to `official_split`.
+- For FMA-small reviewer metrics, the default loss target is normalized to `1.8`.
+- For FMA-small reviewer metrics, the default gating warmup is normalized to `0` so gradient-noise metrics actually observe gated updates.
 
 ## Colab Notebook
 

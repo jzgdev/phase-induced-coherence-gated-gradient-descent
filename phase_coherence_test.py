@@ -233,8 +233,10 @@ def create_variant_loggers(run_dir: Path, variant: str) -> VariantLoggerBundle:
     )
 
 
-def save_run_config(cfg: Config, run_dir: Path) -> None:
-    write_json(run_dir / "config.json", asdict(cfg))
+def save_effective_run_config(cfg: Config, run_dir: Path, num_classes: int) -> None:
+    payload = asdict(cfg)
+    payload["num_classes"] = int(num_classes)
+    write_json(run_dir / "config.json", payload)
 
 
 def log_train_step(
@@ -617,13 +619,46 @@ def parse_variants(value: str) -> Tuple[str, ...]:
     return variants
 
 
-def validate_config(cfg: Config) -> None:
-    if cfg.eval_protocol != "same_track_fixed":
-        raise ValueError(
-            f"Unsupported eval_protocol: {cfg.eval_protocol}. "
-            "This repo currently implements same_track_fixed only."
-        )
+def resolve_effective_config(cfg: Config) -> Config:
+    updates: Dict[str, object] = {}
+    default_cfg = Config()
 
+    if cfg.dataset == "fma_small":
+        if cfg.eval_protocol == "same_track_fixed":
+            updates["eval_protocol"] = "official_split"
+        elif cfg.eval_protocol != "official_split":
+            raise ValueError(
+                f"Unsupported eval_protocol for fma_small: {cfg.eval_protocol}. "
+                "Use official_split."
+            )
+
+        if cfg.loss_target == default_cfg.loss_target:
+            updates["loss_target"] = 1.8
+
+        if cfg.gate_warmup_epochs == default_cfg.gate_warmup_epochs:
+            updates["gate_warmup_epochs"] = 0
+
+    elif cfg.dataset == "medleydb_sample":
+        if cfg.eval_protocol != "same_track_fixed":
+            raise ValueError(
+                f"Unsupported eval_protocol for medleydb_sample: {cfg.eval_protocol}. "
+                "Use same_track_fixed."
+            )
+
+    elif cfg.dataset == "synthetic":
+        if cfg.eval_protocol != "same_track_fixed":
+            raise ValueError(
+                f"Unsupported eval_protocol for synthetic: {cfg.eval_protocol}. "
+                "Use same_track_fixed."
+            )
+
+    if updates:
+        cfg = replace(cfg, **updates)
+
+    return cfg
+
+
+def validate_config(cfg: Config) -> None:
     unknown_variants = [variant for variant in cfg.variants if variant not in VARIANT_SPECS]
     if unknown_variants:
         raise ValueError(f"Unknown variants requested: {unknown_variants}")
@@ -1626,7 +1661,7 @@ def run_once(cfg: Config) -> Dict[str, VariantRunArtifacts]:
     baseline_state, phase_state = capture_initial_states(cfg, num_classes)
 
     run_dir = build_run_dir(cfg)
-    save_run_config(cfg, run_dir)
+    save_effective_run_config(cfg, run_dir, num_classes)
 
     artifacts: Dict[str, VariantRunArtifacts] = {}
 
@@ -1756,6 +1791,22 @@ def main() -> None:
         generate_plots=args.generate_plots,
         track_gradient_cosine=not args.disable_gradient_cosine,
     )
+    requested_cfg = base_cfg
+    base_cfg = resolve_effective_config(base_cfg)
+    if requested_cfg != base_cfg:
+        requested_payload = asdict(requested_cfg)
+        effective_payload = asdict(base_cfg)
+        changed_keys = [
+            key for key in effective_payload
+            if requested_payload.get(key) != effective_payload.get(key)
+        ]
+        changed_text = ", ".join(
+            f"{key}={effective_payload[key]!r}" for key in changed_keys
+        )
+        print(
+            f"Normalized config for dataset '{base_cfg.dataset}': {changed_text}",
+            flush=True,
+        )
 
     validate_config(base_cfg)
 
