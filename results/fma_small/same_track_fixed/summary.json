@@ -1,0 +1,198 @@
+{
+  "dataset": "fma_small",
+  "eval_protocol": "same_track_fixed",
+  "num_runs": 3,
+  "paired_deltas": {
+    "full_minus_baseline": {
+      "best_val_acc": {
+        "mean": -0.013020833333333334,
+        "n": 3,
+        "std": 0.022888535633683205
+      },
+      "final_generalization_gap": {
+        "mean": -0.01476395937303702,
+        "n": 3,
+        "std": 0.013414575718343258
+      },
+      "final_val_loss": {
+        "mean": 0.01834685852130254,
+        "n": 3,
+        "std": 0.025605686008930206
+      },
+      "grad_norm_variance": {
+        "mean": 0.031069181470901916,
+        "n": 3,
+        "std": 0.012142513878643513
+      },
+      "steps_to_loss_target": {
+        "mean": null,
+        "n": 0,
+        "std": null
+      }
+    },
+    "full_minus_complex": {
+      "best_val_acc": {
+        "mean": 0.006510416666666667,
+        "n": 3,
+        "std": 0.02771327644586563
+      },
+      "final_generalization_gap": {
+        "mean": -0.03661493274072806,
+        "n": 3,
+        "std": 0.03751455619931221
+      },
+      "final_val_loss": {
+        "mean": -0.012240911523501078,
+        "n": 3,
+        "std": 0.04206804558634758
+      },
+      "grad_norm_variance": {
+        "mean": -0.013401405651075933,
+        "n": 3,
+        "std": 0.028904160484671593
+      },
+      "steps_to_loss_target": {
+        "mean": null,
+        "n": 0,
+        "std": null
+      }
+    }
+  },
+  "variants": {
+    "align": {
+      "best_val_acc": {
+        "mean": 0.3372395833333333,
+        "n": 3,
+        "std": 0.022552745416760445
+      },
+      "final_generalization_gap": {
+        "mean": 0.007603304460644722,
+        "n": 3,
+        "std": 0.07404851913452148
+      },
+      "final_val_loss": {
+        "mean": 1.8564903909961383,
+        "n": 3,
+        "std": 0.039879221469163895
+      },
+      "grad_norm_variance": {
+        "mean": 0.08008491199258906,
+        "n": 3,
+        "std": 0.03037790209054947
+      },
+      "steps_to_loss_target": {
+        "mean": null,
+        "n": 0,
+        "std": null
+      }
+    },
+    "baseline": {
+      "best_val_acc": {
+        "mean": 0.3580729166666667,
+        "n": 3,
+        "std": 0.0410311222076416
+      },
+      "final_generalization_gap": {
+        "mean": -0.0015650528172651927,
+        "n": 3,
+        "std": 0.0748148113489151
+      },
+      "final_val_loss": {
+        "mean": 1.840327337384224,
+        "n": 3,
+        "std": 0.056233666837215424
+      },
+      "grad_norm_variance": {
+        "mean": 0.04901573052168715,
+        "n": 3,
+        "std": 0.022283120080828667
+      },
+      "steps_to_loss_target": {
+        "mean": null,
+        "n": 0,
+        "std": null
+      }
+    },
+    "complex": {
+      "best_val_acc": {
+        "mean": 0.3385416666666667,
+        "n": 3,
+        "std": 0.031331274658441544
+      },
+      "final_generalization_gap": {
+        "mean": 0.020285920550425846,
+        "n": 3,
+        "std": 0.07673659175634384
+      },
+      "final_val_loss": {
+        "mean": 1.8709151074290276,
+        "n": 3,
+        "std": 0.0429309718310833
+      },
+      "grad_norm_variance": {
+        "mean": 0.093486317643665,
+        "n": 3,
+        "std": 0.05904076620936394
+      },
+      "steps_to_loss_target": {
+        "mean": null,
+        "n": 0,
+        "std": null
+      }
+    },
+    "full": {
+      "best_val_acc": {
+        "mean": 0.3450520833333333,
+        "n": 3,
+        "std": 0.0497695691883564
+      },
+      "final_generalization_gap": {
+        "mean": -0.016329012190302212,
+        "n": 3,
+        "std": 0.0665898397564888
+      },
+      "final_val_loss": {
+        "mean": 1.8586741959055264,
+        "n": 3,
+        "std": 0.03801455348730087
+      },
+      "grad_norm_variance": {
+        "mean": 0.08008491199258906,
+        "n": 3,
+        "std": 0.03037790209054947
+      },
+      "steps_to_loss_target": {
+        "mean": null,
+        "n": 0,
+        "std": null
+      }
+    },
+    "gate_only": {
+      "best_val_acc": {
+        "mean": 0.3216145833333333,
+        "n": 3,
+        "std": 0.034128494560718536
+      },
+      "final_generalization_gap": {
+        "mean": -0.0007391472657521566,
+        "n": 3,
+        "std": 0.09486576914787292
+      },
+      "final_val_loss": {
+        "mean": 1.8826387599110603,
+        "n": 3,
+        "std": 0.06794498860836029
+      },
+      "grad_norm_variance": {
+        "mean": 0.093486317643665,
+        "n": 3,
+        "std": 0.05904076620936394
+      },
+      "steps_to_loss_target": {
+        "mean": null,
+        "n": 0,
+        "std": null
+      }
+    }
+  }
+}
