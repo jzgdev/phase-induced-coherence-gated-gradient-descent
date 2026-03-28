@@ -9,6 +9,11 @@ This repo compares standard training against variants that:
 
 <img src="diagram.png" />
 
+<a target="_blank" href="https://colab.research.google.com/github/jzgdev/phase-induced-coherence-gated-gradient-descent">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
+
+
 ## Overview
 
 The canonical runner is [phase_coherence_test.py](phase_coherence_test.py). It supports:
