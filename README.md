@@ -273,6 +273,15 @@ phase-induced-coherence-gated-gradient-descent/
 - The repo is optimized for fair, seed-matched comparisons across variants.
 - Current reporting uses paired per-seed deltas rather than significance testing.
 
+## Additional Images
+
+<img src="figure2.png" />
+<img src="figure3.png" />
+<img src="figure4.png" />
+<img src="figure5.png" />
+<img src="figure6.png" />
+<img src="figure7.png" />
+
 ## License
 
 MIT
