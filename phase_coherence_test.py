@@ -436,6 +436,12 @@ def format_summary_line(name: str, values: Sequence[float]) -> str:
     return f"{name:<10} {stats['mean']:.6f} ± {stats['std']:.6f}"
 
 
+def format_optional_metric(value: Optional[float]) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.6f}"
+
+
 def summarize_training_epoch(
     train_loss_values: Sequence[float],
     train_ce_values: Sequence[float],
@@ -1784,13 +1790,13 @@ def main() -> None:
         grad_stats = metrics["grad_norm_variance"]
         print(
             f"{variant:<10} "
-            f"val_loss={loss_stats['mean']:.6f if loss_stats['mean'] is not None else 'n/a'}",
+            f"val_loss={format_optional_metric(loss_stats['mean'])}",
             flush=True,
         )
         print(
             f"{variant:<10} "
-            f"gap={gap_stats['mean']:.6f if gap_stats['mean'] is not None else 'n/a'} "
-            f"grad_var={grad_stats['mean']:.6f if grad_stats['mean'] is not None else 'n/a'}",
+            f"gap={format_optional_metric(gap_stats['mean'])} "
+            f"grad_var={format_optional_metric(grad_stats['mean'])}",
             flush=True,
         )
 
