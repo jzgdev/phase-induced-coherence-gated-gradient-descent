@@ -2,7 +2,7 @@ import math
 import random
 import csv
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import soundfile as sf
 import torch
@@ -471,6 +471,7 @@ class FMASmallPairs(Dataset):
         self.num_classes = len(self.label_names)
 
         self.audio_cache: List[Dict[str, object]] = []
+        self.bad_track_ids: Set[int] = set()
         skipped_rows = 0
 
         print(
@@ -560,24 +561,47 @@ class FMASmallPairs(Dataset):
         return self.samples_per_epoch
 
     def __getitem__(self, idx: int):
-        track_idx, start_a, start_b = self.schedule[idx]
-        entry = self.audio_cache[track_idx]
-        audio = entry.get("audio")
-        if audio is None:
-            audio = _load_mono(entry["audio_path"], self.sample_rate)
+        if not self.audio_cache:
+            raise RuntimeError("FMA dataset is empty after filtering unreadable tracks.")
 
-        x = _slice_single_segment(
-            audio=audio,
-            segment_samples=self.segment_samples,
-            start=start_a,
-        )
-        x_ref = _slice_single_segment(
-            audio=audio,
-            segment_samples=self.segment_samples,
-            start=start_b,
-        )
+        for attempt in range(len(self.audio_cache)):
+            schedule_idx = (idx + attempt) % len(self.schedule)
+            track_idx, start_a, start_b = self.schedule[schedule_idx]
+            entry = self.audio_cache[track_idx]
+            track_id = int(entry["track_id"])
 
-        return x, x_ref, torch.tensor(entry["label"], dtype=torch.long)
+            if track_id in self.bad_track_ids:
+                continue
+
+            try:
+                audio = entry.get("audio")
+                if audio is None:
+                    audio = _load_mono(entry["audio_path"], self.sample_rate)
+            except Exception as exc:
+                self.bad_track_ids.add(track_id)
+                print(
+                    f"[FMASmallPairs] runtime skip for unreadable track "
+                    f"{track_id} ({entry['audio_path']}): {exc}",
+                    flush=True,
+                )
+                continue
+
+            x = _slice_single_segment(
+                audio=audio,
+                segment_samples=self.segment_samples,
+                start=start_a,
+            )
+            x_ref = _slice_single_segment(
+                audio=audio,
+                segment_samples=self.segment_samples,
+                start=start_b,
+            )
+
+            return x, x_ref, torch.tensor(entry["label"], dtype=torch.long)
+
+        raise RuntimeError(
+            "All candidate FMA tracks for this worker became unreadable during loading."
+        )
 
 
 # ============================================================

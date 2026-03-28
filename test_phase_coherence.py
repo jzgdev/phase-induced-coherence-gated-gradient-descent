@@ -2,6 +2,7 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import soundfile as sf
 import torch
@@ -206,6 +207,47 @@ class PhaseCoherenceTests(unittest.TestCase):
 
             self.assertEqual(len(train_ds.audio_cache), 1)
             self.assertEqual(train_ds.audio_cache[0]["track_id"], 1)
+
+    def test_fma_small_runtime_decode_failure_falls_back_instead_of_crashing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "fma"
+            audio_root = root / "fma_small"
+            metadata_root = root / "fma_metadata"
+
+            self._write_mock_fma_track(audio_root, 1, frequency=220.0)
+            self._write_mock_fma_track(audio_root, 2, frequency=330.0)
+            self._write_mock_fma_tracks_csv(metadata_root)
+
+            train_ds = FMASmallPairs(
+                root=str(root),
+                metadata_root=str(metadata_root),
+                sample_rate=8000,
+                segment_seconds=0.1,
+                samples_per_epoch=2,
+                seed=7,
+                split="train",
+            )
+
+            track_a = train_ds.audio_cache[0]["track_id"]
+            track_b = train_ds.audio_cache[1]["track_id"]
+            self.assertEqual((track_a, track_b), (1, 2))
+            train_ds.schedule = [(0, 0, 10), (1, 0, 10)]
+
+            original_load_mono = __import__("datasets")._load_mono
+            failing_path = str(train_ds.audio_cache[0]["audio_path"])
+
+            def fake_load_mono(path, expected_sr):
+                if str(path) == failing_path:
+                    raise RuntimeError("forced decode failure")
+                return original_load_mono(path, expected_sr)
+
+            with mock.patch("datasets._load_mono", side_effect=fake_load_mono):
+                x, x_ref, y = train_ds[0]
+
+            self.assertEqual(int(y), int(train_ds.audio_cache[1]["label"]))
+            self.assertIn(1, train_ds.bad_track_ids)
+            self.assertEqual(x.shape[-1], int(0.1 * 8000))
+            self.assertEqual(x_ref.shape[-1], int(0.1 * 8000))
 
     def _write_mock_track(self, audio_root: Path, track_name: str, frequency: float) -> None:
         track_dir = audio_root / track_name
