@@ -207,6 +207,33 @@ def _load_mono(path: Path, expected_sr: int) -> torch.Tensor:
     return audio
 
 
+def _probe_num_frames(path: Path, expected_sr: int) -> int:
+    try:
+        info = sf.info(str(path))
+        src_sr = int(info.samplerate)
+        num_frames = int(info.frames)
+    except Exception:
+        try:
+            import torchaudio
+        except ImportError as exc:
+            raise RuntimeError(
+                f"Could not inspect audio file {path} with soundfile, and torchaudio "
+                "is not installed as a fallback probe."
+            ) from exc
+
+        info = torchaudio.info(str(path))
+        src_sr = int(info.sample_rate)
+        num_frames = int(info.num_frames)
+
+    if src_sr <= 0 or num_frames <= 0:
+        raise ValueError(f"Invalid audio metadata for {path}: sr={src_sr}, frames={num_frames}")
+
+    if src_sr == expected_sr:
+        return num_frames
+
+    return max(1, int(math.ceil(num_frames * expected_sr / src_sr)))
+
+
 def _slice_aligned_pair(
     mix_audio: torch.Tensor,
     stem_audio: torch.Tensor,
@@ -418,6 +445,7 @@ class FMASmallPairs(Dataset):
         seed: int = 42,
         split: str = "train",
         label_names: Optional[Sequence[str]] = None,
+        cache_in_ram: bool = False,
     ):
         super().__init__()
 
@@ -428,6 +456,7 @@ class FMASmallPairs(Dataset):
         self.samples_per_epoch = samples_per_epoch
         self.base_seed = seed
         self.split = split
+        self.cache_in_ram = cache_in_ram
 
         rows, resolved_label_names = _load_fma_small_rows(
             audio_root=self.audio_root,
@@ -445,14 +474,26 @@ class FMASmallPairs(Dataset):
         skipped_rows = 0
 
         print(
-            f"[FMASmallPairs] caching {len(rows)} tracks into RAM "
-            f"({self.num_classes} genre classes, split={split})",
+            f"[FMASmallPairs] preparing {len(rows)} tracks "
+            f"({self.num_classes} genre classes, split={split}, cache_in_ram={self.cache_in_ram})",
             flush=True,
         )
 
         for idx, row in enumerate(rows):
             try:
-                audio = _load_mono(row["audio_path"], self.sample_rate)
+                entry: Dict[str, object] = {
+                    "audio_path": row["audio_path"],
+                    "label": label_map[row["genre_top"]],
+                    "genre_top": row["genre_top"],
+                    "track_id": row["track_id"],
+                }
+
+                if self.cache_in_ram:
+                    audio = _load_mono(row["audio_path"], self.sample_rate)
+                    entry["audio"] = audio
+                    entry["num_frames"] = len(audio)
+                else:
+                    entry["num_frames"] = _probe_num_frames(row["audio_path"], self.sample_rate)
             except Exception as exc:
                 skipped_rows += 1
                 print(
@@ -462,18 +503,11 @@ class FMASmallPairs(Dataset):
                 )
                 continue
 
-            self.audio_cache.append(
-                {
-                    "audio": audio,
-                    "label": label_map[row["genre_top"]],
-                    "genre_top": row["genre_top"],
-                    "track_id": row["track_id"],
-                }
-            )
+            self.audio_cache.append(entry)
 
             if idx % 250 == 0 or idx == len(rows) - 1:
                 print(
-                    f"[FMASmallPairs] cached {idx + 1}/{len(rows)} tracks",
+                    f"[FMASmallPairs] prepared {idx + 1}/{len(rows)} tracks",
                     flush=True,
                 )
 
@@ -504,8 +538,7 @@ class FMASmallPairs(Dataset):
         for _ in range(self.samples_per_epoch):
             track_idx = rng.randrange(len(self.audio_cache))
             entry = self.audio_cache[track_idx]
-            audio = entry["audio"]
-            max_len = len(audio)
+            max_len = int(entry["num_frames"])
 
             start_a = self._sample_start(rng, max_len)
             start_b = self._sample_start(rng, max_len)
@@ -529,14 +562,17 @@ class FMASmallPairs(Dataset):
     def __getitem__(self, idx: int):
         track_idx, start_a, start_b = self.schedule[idx]
         entry = self.audio_cache[track_idx]
+        audio = entry.get("audio")
+        if audio is None:
+            audio = _load_mono(entry["audio_path"], self.sample_rate)
 
         x = _slice_single_segment(
-            audio=entry["audio"],
+            audio=audio,
             segment_samples=self.segment_samples,
             start=start_a,
         )
         x_ref = _slice_single_segment(
-            audio=entry["audio"],
+            audio=audio,
             segment_samples=self.segment_samples,
             start=start_b,
         )

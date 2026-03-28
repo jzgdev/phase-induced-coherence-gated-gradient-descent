@@ -32,6 +32,7 @@ class Config:
     medleydb_root: str = "data/MedleyDB_sample"
     fma_root: str = "data/fma"
     fma_metadata_root: str = ""
+    fma_cache_in_ram: bool = False
 
     seq_len: int = 256
     num_classes: int = 4
@@ -669,6 +670,7 @@ def build_datasets(cfg: Config):
             samples_per_epoch=cfg.train_samples_per_epoch,
             seed=cfg.seed,
             split="train",
+            cache_in_ram=cfg.fma_cache_in_ram,
         )
         val_ds = FMASmallPairs(
             root=cfg.fma_root,
@@ -680,6 +682,7 @@ def build_datasets(cfg: Config):
             seed=cfg.seed + 10_000,
             split="val",
             label_names=train_ds.label_names,
+            cache_in_ram=cfg.fma_cache_in_ram,
         )
         return train_ds, val_ds, train_ds.num_classes
 
@@ -1679,6 +1682,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--medleydb_root", type=str, default="data/MedleyDB_sample")
     parser.add_argument("--fma_root", type=str, default="data/fma")
     parser.add_argument("--fma_metadata_root", type=str, default="")
+    parser.add_argument("--fma_cache_in_ram", action="store_true")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--num_runs", type=int, default=3)
@@ -1719,6 +1723,7 @@ def main() -> None:
         medleydb_root=args.medleydb_root,
         fma_root=args.fma_root,
         fma_metadata_root=args.fma_metadata_root,
+        fma_cache_in_ram=args.fma_cache_in_ram,
         epochs=args.epochs,
         batch_size=args.batch_size,
         num_runs=args.num_runs,
