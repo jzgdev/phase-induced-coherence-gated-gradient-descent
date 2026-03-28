@@ -7,7 +7,7 @@ This repo compares standard training against variants that:
 - align latent amplitude and phase to a paired reference
 - scale per-sample classification loss by a coherence-derived gate
 
-<img src="diagram.png" />
+<img src="img/diagram.png" />
 
 <a target="_blank" href="https://colab.research.google.com/github/jzgdev/phase-induced-coherence-gated-gradient-descent">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
@@ -280,12 +280,12 @@ phase-induced-coherence-gated-gradient-descent/
 
 ## Additional Images
 
-<img src="figure2.png" />
-<img src="figure3.png" />
-<img src="figure4.png" />
-<img src="figure5.png" />
-<img src="figure6.png" />
-<img src="figure7.png" />
+<img src="img/figure2.png" />
+<img src="img/figure3.png" />
+<img src="img/figure4.png" />
+<img src="img/figure5.png" />
+<img src="img/figure6.png" />
+<img src="img/figure7.png" />
 
 ## License
 
